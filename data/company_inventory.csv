@@ -1,0 +1,4 @@
+company_id,company_name,website,industry,location,size,hiring_status,priority,last_checked
+1,Valence Labs,https://www.valencelabs.com,AI drug discovery,Montreal,Startup,Unknown,High,
+2,Nanofacile,https://nanofacile.com,RNA therapeutics/ML,Montreal,Startup,Unknown,High,
+3,Oncoustics,https://www.oncoustics.com,Medical imaging AI,Toronto,Startup,Unknown,High,

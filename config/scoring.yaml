@@ -1,0 +1,36 @@
+weights:
+  domain_fit: 0.30
+  ml_fit: 0.25
+  healthcare_biotech_fit: 0.20
+  location_fit: 0.15
+  hiring_signal: 0.10
+
+target_locations:
+  - Montreal
+  - Toronto
+  - Vancouver
+  - Canada
+  - Remote
+
+target_keywords:
+  - machine learning
+  - artificial intelligence
+  - AI
+  - neuroscience
+  - neurotechnology
+  - healthcare
+  - biotech
+  - bioinformatics
+  - computational biology
+  - medical imaging
+  - drug discovery
+  - precision medicine
+
+target_roles:
+  - machine learning engineer
+  - AI scientist
+  - research scientist
+  - data scientist
+  - bioinformatician
+  - computational biologist
+  - scientific consultant

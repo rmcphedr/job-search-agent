@@ -1,0 +1,17 @@
+project_name: job-search-agent
+
+paths:
+  database: data/job_search.db
+  company_inventory: data/company_inventory.csv
+  raw_pages: data/raw
+  cache: data/cache
+  outputs: outputs
+
+llm:
+  provider: none
+  ollama_url: http://localhost:11434
+  model: null
+
+scraping:
+  request_timeout_seconds: 15
+  user_agent: "job-search-agent/0.1"
