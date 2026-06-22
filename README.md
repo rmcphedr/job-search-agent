@@ -34,7 +34,7 @@ Build a working end-to-end pipeline that:
 - **PyYAML** — Configuration files
 - **python-dotenv** — Environment variable management
 - **Streamlit** — Dashboard UI
-- **SQLite** — Local database (planned)
+- **SQLite** — Local database for companies, pages, profiles, jobs, and runs
 
 ## Setup
 
@@ -55,6 +55,38 @@ cp .env.example .env
 ```
 
 Configuration lives in `config/settings.yaml` (paths, LLM, scraping) and `config/scoring.yaml` (weights, target keywords, roles, locations).
+
+## Database Setup
+
+Initialize the local SQLite database, import the seed company inventory, and inspect the result:
+
+```bash
+python -m src.database.init_db
+python -m src.database.import_inventory
+python -m src.database.inspect_db
+```
+
+The database file is written to `data/job_search.db`. It is local-only and excluded from GitHub by `.gitignore` (`*.db`).
+
+## Directory Discovery
+
+Discover companies from curated directory pages (BIOTECanada, CDL, Life Sciences BC, MaRS, Centech, Neurotech Jobs) and populate `data/company_inventory.csv` with company names and best-known website/profile URLs.
+
+This stage only scrapes **directory source pages** — it does not yet scrape individual company About or Careers pages. Raw scraped HTML is not stored at this stage; extracted candidates are written to `outputs/directory_candidates.csv`.
+
+**Life Sciences BC** uses a two-step extraction:
+
+1. Scrape the [alphabetical member listing](https://lifesciencesbc.ca/membership/members-directory/alphabetical-listing/)
+2. Follow each member profile page to extract the external company website and profile metadata
+
+```bash
+python -m src.discovery.run_directory_discovery --dry-run
+python -m src.discovery.run_directory_discovery --source centech --dry-run
+python -m src.discovery.run_directory_discovery --source creative_destruction_lab --dry-run
+python -m src.discovery.run_directory_discovery
+python -m src.discovery.debug_source --source life_sciences_bc --max-links 50
+python -m src.discovery.test_source --source life_sciences_bc --limit 10
+```
 
 ## GitHub Exclusions
 
@@ -79,6 +111,7 @@ job-search-agent/
 ├── prompts/          # LLM prompt templates (planned)
 ├── src/
 │   ├── database/     # SQLite models and queries
+│   ├── discovery/    # Directory source scraping and inventory updates
 │   ├── scraping/     # HTTP fetching and parsing
 │   ├── enrichment/   # LLM-based enrichment
 │   ├── scoring/      # Fit scoring logic

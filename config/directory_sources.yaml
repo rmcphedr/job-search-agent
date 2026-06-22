@@ -1,0 +1,130 @@
+sources:
+  - source_id: biotech_canada
+    name: BIOTECanada Member Listings
+    url: https://www.biotech.ca/about/member-listings/
+    strategy: link_directory
+    source_domain: biotech.ca
+    include_keywords:
+      - biotech
+      - therapeutic
+      - therapeutics
+      - health
+      - pharma
+      - pharmaceutical
+      - diagnostic
+      - diagnostics
+      - medical
+      - life sciences
+    exclude_keywords:
+      - event
+      - news
+      - policy
+      - contact
+      - membership
+      - login
+    notes: "Alphabetical member directory. Extract member names and external websites/profile links when available."
+
+  - source_id: neurotech_jobs
+    name: Neurotech Jobs
+    url: https://neurotechjobs.io/#search-jobs
+    strategy: link_directory
+    source_domain: neurotechjobs.io
+    include_keywords:
+      - neuro
+      - brain
+      - EEG
+      - BCI
+      - neural
+      - neuroscience
+      - neurotechnology
+      - machine learning
+      - AI
+    exclude_keywords:
+      - privacy
+      - terms
+      - login
+      - subscribe
+    notes: "Job board that may expose company names and job/company links. May require manual review or future Playwright support."
+
+  - source_id: creative_destruction_lab
+    name: Creative Destruction Lab Companies
+    url: https://creativedestructionlab.com/companies/
+    strategy: large_directory
+    source_domain: creativedestructionlab.com
+    include_categories:
+      - Health
+      - Cancer
+      - Artificial Intelligence
+      - Computational Health
+      - Neuro
+      - Bio
+      - Matter
+    exclude_categories:
+      - Blockchain
+      - Commerce
+      - Supply Chain
+    notes: "Large company directory. Extract company names and CDL profile URLs. External company websites may require later profile-page resolution."
+
+  - source_id: life_sciences_bc
+    name: Life Sciences BC Member Directory
+    url: https://lifesciencesbc.ca/membership/members-directory/alphabetical-listing/
+    strategy: member_directory
+    source_domain: lifesciencesbc.ca
+    include_keywords:
+      - biotech
+      - therapeutics
+      - diagnostics
+      - medical device
+      - digital health
+      - genomics
+      - life sciences
+      - health
+    exclude_keywords:
+      - event
+      - policy
+      - membership
+      - contact
+      - login
+    notes: "Alphabetical member directory. Extract names and profile/website links."
+
+  - source_id: mars_health
+    name: MaRS Health Sector
+    url: https://www.marsdd.com/our-sectors/health/
+    strategy: link_following
+    source_domain: marsdd.com
+    include_keywords:
+      - startup
+      - venture
+      - health
+      - biotech
+      - medtech
+      - digital health
+      - medical
+      - diagnostics
+      - AI
+    exclude_keywords:
+      - event
+      - article
+      - newsletter
+      - subscribe
+      - contact
+    notes: "Sector landing page. May not expose a simple company directory; collect relevant internal links and candidate company links."
+
+  - source_id: centech
+    name: Centech Startups
+    url: https://centech.co/en/startups-centech/
+    strategy: card_directory
+    source_domain: centech.co
+    include_categories:
+      - BioTech
+      - Medical Device
+      - Digital Health
+    soft_include_tags:
+      - AI & Machine Learning
+      - Computer Vision
+      - IoT/Sensors
+    exclude_categories:
+      - EdTech
+      - Information Technology
+      - CleanTech
+    notes: "Startup cards. Prefer BioTech, Medical Device, and Digital Health. AI/ML tags should increase confidence."
