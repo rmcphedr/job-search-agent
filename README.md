@@ -88,6 +88,115 @@ python -m src.discovery.debug_source --source life_sciences_bc --max-links 50
 python -m src.discovery.test_source --source life_sciences_bc --limit 10
 ```
 
+## Career Page Discovery
+
+Find company career/jobs pages from the `website` column in `data/company_inventory.csv`.
+
+This step:
+- Checks common career paths (`/careers`, `/jobs`, `/join-us`, etc.)
+- Scans homepage links for careers/jobs language
+- Recognizes external ATS systems (Greenhouse, Lever, Ashby, Workday, BambooHR, and others)
+- Writes `career_page = NOT FOUND` when no page is detected
+- Does **not** extract individual job postings yet
+
+```bash
+python -m src.careers.update_inventory_career_pages --limit 10 --dry-run
+python -m src.careers.update_inventory_career_pages --company "Valence Labs" --force
+python -m src.careers.update_inventory_career_pages --limit 50 --sleep 1
+```
+
+## Job Discovery
+
+Discover open job postings from `career_page` URLs in `data/company_inventory.csv`, filter by role/domain/technical keywords, and insert matching jobs into SQLite `job_postings` without duplicates.
+
+The pipeline:
+- Reads `career_page` from the company inventory (skips empty/`NOT FOUND` values)
+- Detects known ATS providers when possible (Greenhouse, Lever, Ashby, Workday, BambooHR, etc.)
+- Falls back to generic HTML link extraction
+- Filters jobs using `config/job_keywords.yaml`
+- Inserts new jobs with `active=1` and skips duplicates across runs
+
+```bash
+python -m src.jobs.run_job_discovery --limit 10 --dry-run
+python -m src.jobs.run_job_discovery --company "Valence Labs" --dry-run
+python -m src.jobs.debug_jobs_page --company "Valence Labs"
+python -m src.jobs.run_job_discovery --limit 50 --sleep 1
+python -m src.database.inspect_db
+```
+
+This stage extracts job listings and details only. It does not apply to jobs, send emails, or use LLM calls.
+
+## Dashboard
+
+Launch the Streamlit dashboard to browse companies and jobs, run discovery pipelines, and review configuration:
+
+```bash
+streamlit run app/dashboard.py
+```
+
+### Views
+
+- **Companies** — inventory with career page and job search status, filters, sorting, pipeline actions, and company detail pages
+- **Jobs** — SQLite job postings with filters, keyword search, and job detail pages
+- **Analytics** — portfolio metrics, charts, top opportunities, and recent jobs
+- **Profile / Settings** — read-only display of `job_keywords.yaml`, `scoring.yaml`, and `settings.yaml`
+
+### Dashboard actions
+
+On the **Companies** page:
+
+| Action | Description |
+|--------|-------------|
+| **Find Career Pages** | Runs career page discovery for selected companies and updates `company_inventory.csv` |
+| **Run Job Discovery** | Extracts and inserts matching jobs into SQLite for selected companies |
+| **Refresh Dashboard** | Reloads CSV and database data without restarting Streamlit |
+| **Export Filtered Companies** | Downloads the currently filtered company table as `filtered_companies.csv` |
+
+On the **Companies** page, check the box beside each company name in the list, then click **Find Career Pages** or **Run Job Discovery**. Use **Select all shown** or **Clear selection** to bulk-select the filtered list. Enable **Force re-check existing career pages** to overwrite existing career page values.
+
+After actions complete, the dashboard refreshes automatically and shows summary metric cards plus recent run history.
+
+### Company detail page
+
+On **Companies**, choose a company from **Open company profile** and click **View Company** to open the detail page. You can also open companies from global search results in the sidebar.
+
+The company detail page shows:
+
+- Overview fields (website, industry, location, priority, hiring status, career/job status)
+- Company health indicator (🟢 Healthy, 🟡 Partial, 🔴 Missing)
+- Metadata from inventory notes (description, specialties, source directory, confidence)
+- All jobs discovered for that company
+- Recent discovery activity from the `runs` table
+- Disabled **Coming Soon** placeholders for resume tailoring, cover letters, outreach, and application tracking
+
+### Job detail page
+
+On **Jobs** or from a company detail page, select a job and click **View Job Detail**.
+
+The job detail page shows title, company, location, provider, fit score, matched keywords, full description, and links to open or copy the posting URL.
+
+### Analytics dashboard
+
+The **Analytics** page summarizes portfolio metrics, Plotly charts (jobs by industry/location, company priority, career/job status breakdowns), top 20 opportunities by fit score, and the 30 most recent jobs.
+
+### Search features
+
+- **Global search** (sidebar): searches company names, industries, job titles, descriptions, and matched keywords
+- **Keyword search** (Jobs page): filter jobs by terms like Python, machine learning, bioinformatics, neuroscience, fMRI, or healthcare
+
+Selected company and job persist in the sidebar while navigating between pages.
+
+### Planned AI features (Coming Soon)
+
+Future phases will add:
+
+- Resume tailoring for specific job postings
+- Cover letter generation
+- Outreach message generation
+- Application tracking
+
+These are visible as disabled placeholders in the UI and are not implemented yet.
+
 ## GitHub Exclusions
 
 The following are **not** committed to GitHub:
@@ -105,17 +214,20 @@ Only the scaffold, configuration templates, and seed company inventory are track
 
 ```
 job-search-agent/
-├── config/           # settings.yaml, scoring.yaml
+├── app/              # Streamlit dashboard entry point
+├── config/           # settings.yaml, scoring.yaml, job_keywords.yaml
 ├── data/             # company_inventory.csv, raw/, cache/
 ├── outputs/          # generated reports and exports
 ├── prompts/          # LLM prompt templates (planned)
 ├── src/
 │   ├── database/     # SQLite models and queries
 │   ├── discovery/    # Directory source scraping and inventory updates
+│   ├── careers/      # Career page URL discovery
+│   ├── jobs/         # Job posting extraction, filtering, and CLI
+│   ├── ui/           # Streamlit dashboard views and data loaders
 │   ├── scraping/     # HTTP fetching and parsing
 │   ├── enrichment/   # LLM-based enrichment
 │   ├── scoring/      # Fit scoring logic
-│   ├── jobs/         # Job orchestration and CLI
 │   └── utils/        # Shared helpers
 └── tests/
 ```

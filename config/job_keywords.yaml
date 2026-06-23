@@ -1,0 +1,61 @@
+high_value_roles:
+  - machine learning
+  - ml engineer
+  - ai scientist
+  - research scientist
+  - data scientist
+  - bioinformatician
+  - computational biologist
+  - computational biology
+  - ai engineer
+  - machine learning scientist
+  - deep learning
+  - data science
+  - scientific computing
+
+domain_keywords:
+  - neuroscience
+  - neurotechnology
+  - brain
+  - EEG
+  - fMRI
+  - medical imaging
+  - healthcare
+  - biotech
+  - bioinformatics
+  - genomics
+  - drug discovery
+  - precision medicine
+  - diagnostics
+  - clinical
+  - therapeutics
+  - digital health
+
+technical_keywords:
+  - python
+  - pytorch
+  - tensorflow
+  - scikit-learn
+  - statistics
+  - modeling
+  - neural network
+  - LLM
+  - foundation model
+  - computer vision
+  - signal processing
+  - time series
+  - multimodal
+
+exclude_role_keywords:
+  - sales
+  - finance
+  - accounting
+  - accountant
+  - human resources
+  - hr manager
+  - legal counsel
+  - operations manager
+  - office manager
+  - recruiter
+  - recruiting coordinator
+  - business development representative

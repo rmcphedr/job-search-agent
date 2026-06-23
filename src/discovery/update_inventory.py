@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from src.discovery.link_utils import (
     clean_url,
     format_url_for_csv,
     get_domain,
+    has_life_sciences_bc_member_url,
     is_external_url,
     is_life_sciences_bc_listing_url,
     is_life_sciences_bc_profile_url,
@@ -50,6 +52,14 @@ class InventoryUpdateResult:
     inserted: int
     skipped_duplicates: int
     updated_fields: int
+
+
+@dataclass
+class InventoryCleanupResult:
+    rows_before: int
+    rows_removed: int
+    rows_after: int
+    removed_companies: list[str]
 
 
 def get_inventory_path() -> Path:
@@ -158,6 +168,27 @@ def _find_existing_index(frame: pd.DataFrame, candidate: CompanyCandidate) -> in
             best_index = int(index)
 
     return best_index
+
+
+def _is_valid_life_sciences_bc_row(row: pd.Series) -> bool:
+    """Return True when a Life Sciences BC row references a member profile URL."""
+    source_url = _normalize_website(row.get("source_url"))
+    website = _normalize_website(row.get("website"))
+    notes = str(row.get("notes", "") or "")
+
+    if has_life_sciences_bc_member_url(source_url, website):
+        return True
+
+    profile_url = None
+    if notes.startswith("{") and "profile_url" in notes:
+        try:
+            payload = json.loads(notes)
+            if isinstance(payload, dict):
+                profile_url = _normalize_website(payload.get("profile_url"))
+        except json.JSONDecodeError:
+            profile_url = None
+
+    return has_life_sciences_bc_member_url(profile_url)
 
 
 def _website_quality(website: str | None, source_id: str) -> int:
@@ -360,6 +391,13 @@ def update_inventory(
             skipped_duplicates += 1
             continue
 
+        if candidate.source_id == "life_sciences_bc" and not has_life_sciences_bc_member_url(
+            candidate.source_url,
+            candidate.website,
+        ):
+            skipped_duplicates += 1
+            continue
+
         match_index = _find_existing_index(frame, candidate)
         if match_index is not None:
             updated_row, field_updates = _fill_empty_fields(frame.loc[match_index], candidate)
@@ -394,3 +432,32 @@ def reformat_inventory_urls(inventory_path: Path | None = None) -> int:
     frame = _format_url_columns_for_csv(frame)
     frame.to_csv(path, index=False)
     return len(frame)
+
+
+def clean_life_sciences_bc_inventory(inventory_path: Path | None = None) -> InventoryCleanupResult:
+    """Remove Life Sciences BC rows that do not reference a member profile URL."""
+    path = inventory_path or get_inventory_path()
+    frame = pd.read_csv(path, dtype=str)
+    rows_before = len(frame)
+
+    if frame.empty:
+        return InventoryCleanupResult(rows_before, 0, 0, [])
+
+    for column in ALL_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = ""
+
+    lsbc_mask = frame["source_id"].fillna("").str.lower() == "life_sciences_bc"
+    invalid_lsbc = lsbc_mask & ~frame.apply(_is_valid_life_sciences_bc_row, axis=1)
+    removed_companies = frame.loc[invalid_lsbc, "company_name"].fillna("").astype(str).tolist()
+
+    cleaned = frame.loc[~invalid_lsbc].copy()
+    cleaned = _format_url_columns_for_csv(cleaned)
+    cleaned.to_csv(path, index=False)
+
+    return InventoryCleanupResult(
+        rows_before=rows_before,
+        rows_removed=int(invalid_lsbc.sum()),
+        rows_after=len(cleaned),
+        removed_companies=removed_companies,
+    )

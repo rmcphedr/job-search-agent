@@ -308,3 +308,8 @@ def is_life_sciences_bc_listing_url(url: str | None) -> bool:
     return "alphabetical-listing" in lower_url or lower_url.rstrip("/").endswith(
         "/members-directory"
     )
+
+
+def has_life_sciences_bc_member_url(*urls: str | None) -> bool:
+    """Return True if any URL is a valid Life Sciences BC member profile link."""
+    return any(is_life_sciences_bc_profile_url(clean_url(url)) for url in urls if url)
