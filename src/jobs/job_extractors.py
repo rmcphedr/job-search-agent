@@ -13,7 +13,18 @@ from bs4 import BeautifulSoup, Tag
 
 from src.discovery.fetch import get_request_timeout, get_user_agent
 from src.discovery.link_utils import clean_url, normalize_url
+from src.jobs.job_detail_parsers import fix_text_encoding, parse_job_detail_from_html
+from src.jobs.discovery_config import DiscoveryConfig, load_discovery_config
+from src.jobs.filter_jobs import prescreen_jobs, score_job
 from src.jobs.job_models import JobCandidate
+from src.jobs.search_strategies import (
+    ABBVIE_PORTAL,
+    build_abbvie_search_queries,
+    build_abbvie_search_url,
+    build_search_targets,
+    dedupe_job_candidates,
+    detect_search_strategy,
+)
 from src.jobs.job_url_utils import (
     absolute_url,
     compute_content_hash,
@@ -21,18 +32,24 @@ from src.jobs.job_url_utils import (
     detect_provider_from_url,
     is_generic_anchor_text,
     is_career_listing_url,
+    is_work_location_type,
+    location_from_job_url,
+    looks_like_individual_job_url,
     looks_like_job_link,
+    looks_like_job_portal_link,
     looks_like_job_title,
     normalize_job_url,
     title_from_card_text,
     title_from_job_url,
     truncate_text,
 )
+from src.llm.job_description import format_job_description_safe
 
 logger = logging.getLogger(__name__)
 
 MAX_PAGE_CHARS = 100_000
 MAX_DETAIL_FETCHES = 25
+MAX_JOB_PORTAL_HOPS = 2
 
 
 def fetch_page(url: str) -> tuple[int, str, str]:
@@ -41,6 +58,8 @@ def fetch_page(url: str) -> tuple[int, str, str]:
     timeout = get_request_timeout()
     try:
         response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+        if response.encoding is None or response.encoding.lower() == "iso-8859-1":
+            response.encoding = response.apparent_encoding or "utf-8"
         html = response.text[:MAX_PAGE_CHARS] if response.text else ""
         return response.status_code, response.url, html
     except requests.RequestException as exc:
@@ -67,64 +86,79 @@ def _extract_page_title(html: str) -> str:
 
 
 def _extract_location_from_text(text: str) -> str | None:
+    from src.jobs.job_url_utils import is_work_location_type, location_from_job_url
+
+    geography = None
     patterns = (
-        r"(?:location|office|workplace)\s*[:\-]\s*([^\n|]+)",
-        r"\b(remote|hybrid|on-site|onsite)\b[^|\n]*",
+        r"(?:location|office|city)\s*[:\-]\s*([^\n|]+)",
     )
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if match:
-            return match.group(1 if match.lastindex else 0).strip()
+            candidate = match.group(1).strip()
+            if candidate and not is_work_location_type(candidate):
+                geography = candidate
+                break
+
+    if geography:
+        return geography
+
+    work_type_match = re.search(r"\b(remote|hybrid|on-site|onsite)\b", text, flags=re.IGNORECASE)
+    if work_type_match and not geography:
+        return None
+
     return None
 
 
-def extract_job_detail(url: str) -> dict[str, str | None]:
+def extract_job_detail(
+    url: str,
+    *,
+    company_name: str = "",
+    format_description: bool = True,
+) -> dict[str, str | None]:
     """Fetch and parse an individual job detail page."""
     status_code, final_url, html = fetch_page(url)
     if status_code not in {200, 301, 302} or not html:
         return {
             "title": None,
             "location": None,
+            "location_type": None,
             "description": None,
             "url": normalize_job_url(final_url),
         }
 
-    soup = BeautifulSoup(html, "html.parser")
-    title = None
-    for selector in ("h1", "h2", "title"):
-        element = soup.find(selector)
-        if element:
-            candidate = element.get_text(" ", strip=True)
-            if looks_like_job_title(candidate):
-                title = candidate
-                break
+    parsed = parse_job_detail_from_html(html, final_url)
+    title = parsed["title"]
+    if not title or not looks_like_job_title(title):
+        soup = BeautifulSoup(html, "html.parser")
+        for selector in ("h1", "h2", "title"):
+            element = soup.find(selector)
+            if element:
+                candidate = element.get_text(" ", strip=True)
+                if looks_like_job_title(candidate):
+                    title = candidate
+                    break
 
-    location = None
-    for label in soup.find_all(string=re.compile(r"location|office|remote|workplace", re.I)):
-        parent = label.parent if isinstance(label, Tag) else None
-        if parent is not None:
-            location = _extract_location_from_text(parent.get_text(" ", strip=True))
-            if location:
-                break
+    location = parsed["location"] or location_from_job_url(final_url)
+    if is_work_location_type(location):
+        location = location_from_job_url(final_url)
 
-    description = None
-    for selector in (
-        "main",
-        "article",
-        'div[class*="description"]',
-        'div[class*="content"]',
-        "body",
-    ):
-        block = soup.select_one(selector)
-        if block is not None:
-            description = truncate_text(block.get_text("\n", strip=True))
-            if description and len(description) > 80:
-                break
+    description = parsed["description_raw"]
+    if format_description and description:
+        formatted, _error = format_job_description_safe(
+            company_name=company_name,
+            title=title or "",
+            location=location,
+            location_type=parsed["location_type"],
+            raw_description=description,
+        )
+        description = formatted or description
 
     return {
-        "title": title,
+        "title": fix_text_encoding(title),
         "location": location,
-        "description": description,
+        "location_type": parsed["location_type"],
+        "description": truncate_text(description),
         "url": normalize_job_url(final_url),
     }
 
@@ -203,10 +237,22 @@ def _extract_links_as_jobs(
             continue
 
         title = text if looks_like_job_title(text) and not is_generic_anchor_text(text) else None
-        location = None
+        location = location_from_job_url(job_url)
         parent = anchor.parent if isinstance(anchor.parent, Tag) else None
-        if parent is not None:
+        if parent is not None and not location:
             location = _extract_location_from_text(parent.get_text(" ", strip=True))
+            if is_work_location_type(location):
+                location = location_from_job_url(job_url)
+            if not title:
+                for sibling in parent.find_all("a", href=True):
+                    sibling_text = sibling.get_text(" ", strip=True)
+                    if (
+                        sibling is not anchor
+                        and looks_like_job_title(sibling_text)
+                        and not is_generic_anchor_text(sibling_text)
+                    ):
+                        title = sibling_text
+                        break
 
         if not title and parent is not None:
             title = title_from_card_text(parent.get_text(" ", strip=True))
@@ -243,6 +289,7 @@ def _extract_links_as_jobs(
 def _greenhouse_board_token(url: str, html: str) -> str | None:
     skip_tokens = {"embed", "job_board", "js", "jobs", "v1", "boards"}
     patterns = (
+        r"boards-api\.greenhouse\.io/v1/boards/([^/?#\"'\s]+)",
         r"boards\.greenhouse\.io/([^/?#\"'\s]+)",
         r"job-boards\.greenhouse\.io/([^/?#\"'\s]+)",
         r"embed/job_board/js\?[^\"']*?\bfor=([^&\"'\s]+)",
@@ -596,24 +643,47 @@ PROVIDER_EXTRACTORS: dict[str, Callable[..., list[JobCandidate]]] = {
 }
 
 
-def enrich_job_details(candidates: list[JobCandidate], max_fetches: int = MAX_DETAIL_FETCHES) -> list[JobCandidate]:
+def _needs_detail_enrichment(candidate: JobCandidate) -> bool:
+    if not candidate.url:
+        return False
+    if not candidate.description or len(candidate.description) <= 120:
+        return True
+    if is_work_location_type(candidate.location):
+        return True
+    return False
+
+
+def enrich_job_details(
+    candidates: list[JobCandidate],
+    *,
+    max_fetches: int = MAX_DETAIL_FETCHES,
+    company_name: str = "",
+    format_description: bool = True,
+) -> list[JobCandidate]:
     """Fetch individual job pages to enrich title, location, and description."""
     enriched: list[JobCandidate] = []
     fetches = 0
     for candidate in candidates:
-        if not candidate.url or (candidate.description and len(candidate.description) > 120):
+        if not _needs_detail_enrichment(candidate):
             enriched.append(candidate)
             continue
         if fetches >= max_fetches:
             enriched.append(candidate)
             continue
-        detail = extract_job_detail(candidate.url)
+        detail = extract_job_detail(
+            candidate.url or "",
+            company_name=company_name or candidate.company_name,
+            format_description=format_description,
+        )
         fetches += 1
+        location = detail["location"] or candidate.location
+        if is_work_location_type(location):
+            location = detail["location"] or location_from_job_url(detail["url"] or candidate.url)
         enriched.append(
             candidate.model_copy(
                 update={
                     "title": detail["title"] or candidate.title,
-                    "location": detail["location"] or candidate.location,
+                    "location": location,
                     "description": detail["description"] or candidate.description,
                     "url": detail["url"] or candidate.url,
                     "content_hash": compute_content_hash(
@@ -627,18 +697,253 @@ def enrich_job_details(candidates: list[JobCandidate], max_fetches: int = MAX_DE
     return enriched
 
 
+def _looks_like_real_job(candidate: JobCandidate) -> bool:
+    if not candidate.title:
+        return False
+    title = candidate.title.lower()
+    nav_terms = (
+        "search jobs",
+        "search postings",
+        "job alerts",
+        "all jobs",
+        "view all",
+        "learn more",
+        "how to apply",
+        "frequently asked",
+        "positions and views",
+        "explore careers",
+        "around the world",
+        "equality, diversity",
+        "follow us",
+        "position category",
+        "bookmark",
+        "after you apply",
+        "workplace & career",
+        "apply to a program",
+    )
+    return not any(term in title for term in nav_terms)
+
+
+def _collect_portal_targets(html: str, base_url: str) -> list[tuple[str, str]]:
+    soup = BeautifulSoup(html, "html.parser")
+    targets: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor.get("href"))
+        text = anchor.get_text(" ", strip=True)
+        if not looks_like_job_portal_link(text, href):
+            continue
+        absolute = absolute_url(base_url, href)
+        if not absolute or absolute.rstrip("/") in seen:
+            continue
+        if looks_like_individual_job_url(absolute):
+            continue
+        seen.add(absolute.rstrip("/"))
+        targets.append((absolute, text))
+    return targets
+
+
+def _follow_job_portals(
+    url: str,
+    html: str,
+    *,
+    company_name: str,
+    company_id: int | None,
+    source_career_page: str,
+    provider: str,
+    extractor: Callable[..., list[JobCandidate]],
+    hops_remaining: int = MAX_JOB_PORTAL_HOPS,
+) -> list[JobCandidate]:
+    """Follow hub links (e.g. 'Current Job Openings') when the landing page has no jobs."""
+    if hops_remaining <= 0:
+        return []
+
+    for portal_url, _anchor_text in _collect_portal_targets(html, url):
+        status_code, final_url, portal_html = fetch_page(portal_url)
+        if status_code not in {200, 301, 302} or not portal_html:
+            continue
+
+        portal_provider = detect_career_provider(final_url, portal_html)
+        portal_extractor = PROVIDER_EXTRACTORS.get(portal_provider, extractor)
+        jobs = portal_extractor(
+            final_url,
+            portal_html,
+            company_name=company_name,
+            company_id=company_id,
+            source_career_page=source_career_page,
+        )
+        real_jobs = [job for job in jobs if _looks_like_real_job(job)]
+        if real_jobs:
+            return real_jobs
+
+        nested = _follow_job_portals(
+            final_url,
+            portal_html,
+            company_name=company_name,
+            company_id=company_id,
+            source_career_page=source_career_page,
+            provider=portal_provider,
+            extractor=portal_extractor,
+            hops_remaining=hops_remaining - 1,
+        )
+        if nested:
+            return nested
+
+    return []
+
+
+def _extract_listings_from_page(
+    url: str,
+    html: str,
+    *,
+    company_name: str,
+    company_id: int | None,
+    source_career_page: str,
+    provider: str,
+    extractor: Callable[..., list[JobCandidate]],
+) -> list[JobCandidate]:
+    """Extract job listing metadata from a single page without detail enrichment."""
+    jobs = extractor(
+        url,
+        html,
+        company_name=company_name,
+        company_id=company_id,
+        source_career_page=source_career_page,
+    )
+    real_jobs = [job for job in jobs if _looks_like_real_job(job)]
+    if real_jobs:
+        return real_jobs
+
+    return _follow_job_portals(
+        url,
+        html,
+        company_name=company_name,
+        company_id=company_id,
+        source_career_page=source_career_page,
+        provider=provider,
+        extractor=extractor,
+    )
+
+
+def _harvest_from_search_targets(
+    targets: list,
+    *,
+    company_name: str,
+    company_id: int | None,
+    source_career_page: str,
+    provider: str,
+    extractor: Callable[..., list[JobCandidate]],
+    discovery_config: DiscoveryConfig,
+) -> tuple[list[JobCandidate], int]:
+    """Harvest listing metadata from search portals with per-query pagination."""
+    collected: list[JobCandidate] = []
+    pages_fetched = 0
+    max_listings = discovery_config.budgets.max_listings_per_company
+    max_pages = discovery_config.budgets.max_listing_pages_per_query
+
+    for target in targets:
+        if len(collected) >= max_listings:
+            break
+
+        if target.label.startswith("abbvie:"):
+            queries = build_abbvie_search_queries(discovery_config)
+            for query in queries:
+                if len(collected) >= max_listings:
+                    break
+                for page in range(1, max_pages + 1):
+                    search_url = build_abbvie_search_url(target.url, query, page)
+                    status_code, final_url, html = fetch_page(search_url)
+                    pages_fetched += 1
+                    if status_code not in {200, 301, 302} or not html:
+                        break
+
+                    page_jobs = _extract_listings_from_page(
+                        final_url,
+                        html,
+                        company_name=company_name,
+                        company_id=company_id,
+                        source_career_page=source_career_page,
+                        provider=provider,
+                        extractor=extractor,
+                    )
+                    if not page_jobs:
+                        break
+
+                    before = len(collected)
+                    collected.extend(page_jobs)
+                    collected = dedupe_job_candidates(collected)
+                    if len(collected) == before:
+                        break
+                    if len(collected) >= max_listings:
+                        collected = collected[:max_listings]
+                        break
+
+    return collected, pages_fetched
+
+
+def _apply_prescreen_and_enrich(
+    jobs: list[JobCandidate],
+    *,
+    company_name: str,
+    discovery_config: DiscoveryConfig,
+    enrich_details: bool,
+) -> tuple[list[JobCandidate], int, int]:
+    """Pre-screen on title/metadata, then enrich only the top candidates by score."""
+    raw_count = len(jobs)
+    jobs = dedupe_job_candidates(jobs)
+    jobs = [job for job in jobs if _looks_like_real_job(job)]
+
+    prescreened = prescreen_jobs(
+        jobs,
+        min_keyword_score=discovery_config.prescreen.min_keyword_score,
+        title_only=discovery_config.prescreen.title_only,
+    )
+    prescreened = prescreened[: discovery_config.budgets.max_jobs_saved_per_company]
+
+    if not enrich_details or not prescreened:
+        return prescreened, raw_count, len(prescreened)
+
+    enrich_limit = discovery_config.budgets.max_detail_fetches
+    to_enrich = prescreened[:enrich_limit]
+    enriched = enrich_job_details(
+        to_enrich,
+        max_fetches=enrich_limit,
+        company_name=company_name,
+        format_description=discovery_config.prescreen.format_descriptions,
+    )
+
+    enriched_by_url = {job.url: job for job in enriched if job.url}
+    final_jobs: list[JobCandidate] = []
+    keywords = None
+    for job in prescreened:
+        enriched_job = enriched_by_url.get(job.url)
+        if enriched_job is not None:
+            score, matched = score_job(enriched_job, keywords, title_only=False)
+            final_jobs.append(
+                enriched_job.model_copy(
+                    update={"keyword_score": score, "matched_keywords": matched}
+                )
+            )
+        else:
+            final_jobs.append(job)
+
+    return final_jobs, raw_count, len(prescreened)
+
+
 def extract_jobs_from_career_page(
     career_page: str,
     *,
     company_name: str,
     company_id: int | None = None,
     enrich_details: bool = True,
+    discovery_config: DiscoveryConfig | None = None,
 ) -> dict[str, object]:
     """
     Fetch a career page, detect provider, and extract job candidates.
 
     Returns status metadata and a list of JobCandidate objects.
     """
+    config = discovery_config or load_discovery_config()
     normalized_page = normalize_url(career_page, career_page) or clean_url_fallback(career_page)
     if not normalized_page:
         return {
@@ -647,6 +952,9 @@ def extract_jobs_from_career_page(
             "final_url": career_page,
             "page_title": "",
             "jobs": [],
+            "raw_jobs_found": 0,
+            "prescreened_jobs": 0,
+            "search_strategy": None,
             "notes": "Invalid career page URL",
         }
 
@@ -658,28 +966,64 @@ def extract_jobs_from_career_page(
             "final_url": final_url,
             "page_title": "",
             "jobs": [],
+            "raw_jobs_found": 0,
+            "prescreened_jobs": 0,
+            "search_strategy": None,
             "notes": f"Failed to fetch career page (status={status_code})",
         }
 
     provider = detect_career_provider(final_url, html)
     extractor = PROVIDER_EXTRACTORS.get(provider, extract_generic_html_jobs)
-    jobs = extractor(
-        final_url,
-        html,
+    search_strategy = detect_search_strategy(final_url, html, provider)
+    search_targets = build_search_targets(final_url, html, provider, config)
+    pages_fetched = 1
+
+    if search_targets:
+        jobs, pages_fetched = _harvest_from_search_targets(
+            search_targets,
+            company_name=company_name,
+            company_id=company_id,
+            source_career_page=normalized_page,
+            provider=provider,
+            extractor=extractor,
+            discovery_config=config,
+        )
+        notes_prefix = (
+            f"Search-first harvest via {search_strategy}: "
+            f"{pages_fetched} listing page(s), "
+            f"{len(build_abbvie_search_queries(config))} queries"
+            if search_strategy == ABBVIE_PORTAL
+            else f"Search-first harvest via {search_strategy}: {pages_fetched} page(s)"
+        )
+    else:
+        jobs = _extract_listings_from_page(
+            final_url,
+            html,
+            company_name=company_name,
+            company_id=company_id,
+            source_career_page=normalized_page,
+            provider=provider,
+            extractor=extractor,
+        )
+        notes_prefix = f"Landing-page extraction via {provider}"
+
+    final_jobs, raw_count, prescreened_count = _apply_prescreen_and_enrich(
+        jobs,
         company_name=company_name,
-        company_id=company_id,
-        source_career_page=normalized_page,
+        discovery_config=config,
+        enrich_details=enrich_details,
     )
-    if enrich_details:
-        jobs = enrich_job_details(jobs)
 
     return {
         "status": "OK",
         "provider": provider,
         "final_url": final_url,
         "page_title": _extract_page_title(html),
-        "jobs": jobs,
-        "notes": f"Extracted {len(jobs)} raw job candidate(s) via {provider}",
+        "jobs": final_jobs,
+        "raw_jobs_found": raw_count,
+        "prescreened_jobs": prescreened_count,
+        "search_strategy": search_strategy,
+        "notes": f"{notes_prefix}; {prescreened_count}/{raw_count} passed pre-screen; saved {len(final_jobs)}",
     }
 
 

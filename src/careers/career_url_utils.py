@@ -16,6 +16,7 @@ COMMON_CAREER_PATHS = (
     "/job-openings",
     "/open-positions",
     "/openings",
+    "/current-openings",
     "/join-us",
     "/join",
     "/work-with-us",
@@ -91,6 +92,22 @@ ATS_DOMAIN_FRAGMENTS = (
 )
 
 CAREER_PATH_HINTS = ("career", "jobs", "join", "opening", "hiring", "opportunit")
+
+JOB_PORTAL_LINK_TERMS = (
+    "current job openings",
+    "current openings",
+    "see openings",
+    "see current openings",
+    "view openings",
+    "view all jobs",
+    "all jobs",
+    "search jobs",
+    "job openings",
+    "open positions",
+    "job search",
+    "browse jobs",
+    "explore careers",
+)
 
 
 def normalize_homepage_url(url: str) -> str | None:
@@ -214,18 +231,92 @@ def url_path_looks_like_career_page(url: str) -> bool:
     return any(hint in path for hint in CAREER_PATH_HINTS)
 
 
+def _normalized_path(url: str) -> str:
+    path = urlparse(url).path or "/"
+    return path.rstrip("/") or "/"
+
+
+def is_hash_only_career_route(url: str) -> bool:
+    """Return True when a URL only adds a careers hash fragment to the homepage path."""
+    parsed = urlparse(url)
+    path = _normalized_path(url)
+    if path != "/":
+        return False
+    fragment = clean_text(parsed.fragment)
+    if not fragment:
+        return False
+    return any(hint in fragment for hint in CAREER_PATH_HINTS)
+
+
+def is_effectively_homepage(homepage: str, url: str) -> bool:
+    """Return True when url resolves to the company homepage, not a distinct careers page."""
+    if not homepage or not url:
+        return False
+    if get_domain(homepage) != get_domain(url):
+        return False
+    if is_hash_only_career_route(url):
+        return True
+
+    home_path = _normalized_path(homepage)
+    url_path = _normalized_path(url)
+    if url_path != home_path and url_path != "/":
+        return False
+    if url_path_looks_like_career_page(url):
+        return False
+    return True
+
+
+def is_careers_subdomain(url: str) -> bool:
+    """Return True for dedicated careers subdomains such as careers.example.com."""
+    domain = get_domain(url)
+    return domain.startswith("careers.") or domain.startswith("jobs.")
+
+
+def looks_like_job_portal_link(text: str, url: str) -> bool:
+    """Return True if a link likely leads to an actual job listings portal."""
+    if is_ats_url(url) or is_careers_subdomain(url):
+        return True
+    combined = clean_text(f"{text} {url}")
+    if any(term in combined for term in JOB_PORTAL_LINK_TERMS):
+        return True
+    if url_path_looks_like_career_page(url) and any(
+        term in combined for term in ("opening", "posting", "search")
+    ):
+        return True
+    return False
+
+
+def extract_portal_links(html: str, base_url: str) -> list[dict[str, str]]:
+    """Extract links that likely lead from a careers hub to job listings."""
+    portal_links: list[dict[str, str]] = []
+    for link in extract_links(html, base_url):
+        if looks_like_job_portal_link(link["text"], link["url"]):
+            portal_links.append(link)
+    return portal_links
+
+
 def score_career_url(
     url: str,
     anchor_text: str = "",
     page_text: str = "",
     final_url: str = "",
+    homepage: str = "",
 ) -> tuple[float, str]:
     """Score a candidate career URL and return (confidence, notes)."""
     if not is_valid_url(url):
         return 0.0, "Invalid URL"
 
+    resolved = final_url or url
+    if homepage and is_effectively_homepage(homepage, resolved):
+        return 0.0, "Same as company homepage, not a distinct careers page"
+    if is_hash_only_career_route(resolved):
+        return 0.0, "Hash-only careers route on homepage"
+
     if is_ats_url(url):
         return 0.95, "External ATS link detected"
+
+    if is_careers_subdomain(resolved):
+        return 0.92, "Dedicated careers subdomain"
 
     combined = clean_text(f"{url} {anchor_text} {page_text} {final_url}")
     has_career_terms = contains_career_terms(combined)

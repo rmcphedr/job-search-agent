@@ -1,0 +1,10 @@
+provider: ollama
+
+ollama:
+  base_url: http://localhost:11434
+  model: qwen3:30b
+  temperature: 0.1
+
+batch_size: 5
+
+cache_enabled: true

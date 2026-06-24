@@ -59,10 +59,27 @@ GENERIC_ANCHOR_TEXTS = (
     "view job",
     "view role",
     "view position",
+    "view details",
     "read more",
     "see more",
     "details",
     "more info",
+)
+
+JOB_PORTAL_LINK_TERMS = (
+    "current job openings",
+    "current openings",
+    "see openings",
+    "see current openings",
+    "view openings",
+    "view all jobs",
+    "all jobs",
+    "search jobs",
+    "search postings",
+    "job openings",
+    "open positions",
+    "job search",
+    "browse jobs",
 )
 
 INDIVIDUAL_JOB_URL_PATTERNS = (
@@ -77,6 +94,7 @@ INDIVIDUAL_JOB_URL_PATTERNS = (
     r"/opportunities/[^/?#]+",
     r"/vacancy/[^/?#]+",
     r"/posting/[^/?#]+",
+    r"/postings/\d+",
 )
 
 
@@ -146,7 +164,24 @@ def looks_like_job_link(text: str, href: str) -> bool:
         return False
     if any(term in combined for term in ("privacy", "terms", "cookie", "linkedin.com/in")):
         return False
+    if looks_like_individual_job_url(href):
+        return True
     return any(term in combined for term in JOB_LINK_TERMS)
+
+
+def looks_like_job_portal_link(text: str, href: str) -> bool:
+    """Return True if a link likely leads from a careers hub to job listings."""
+    combined = normalize_text(f"{text} {href}")
+    if detect_provider_from_url(href):
+        return True
+    domain = get_domain(href) if is_valid_http_url(href) else ""
+    if domain.startswith("careers.") or domain.startswith("jobs."):
+        return True
+    if any(term in combined for term in JOB_PORTAL_LINK_TERMS):
+        return True
+    if re.search(r"/postings/(?:search|\d+)", href.lower()):
+        return True
+    return False
 
 
 def looks_like_job_title(text: str | None) -> bool:
@@ -170,6 +205,39 @@ def looks_like_individual_job_url(url: str | None) -> bool:
         return False
     lower_url = url.lower()
     return any(re.search(pattern, lower_url) for pattern in INDIVIDUAL_JOB_URL_PATTERNS)
+
+
+def location_from_job_url(url: str | None) -> str | None:
+    """Extract a geographic location embedded in a job posting URL slug."""
+    if not url:
+        return None
+    lower_url = url.lower()
+    match = re.search(
+        r"-in-([a-z0-9]+(?:-[a-z0-9]+)*-[a-z]{2})-jid-\d+",
+        lower_url,
+    )
+    if not match:
+        match = re.search(
+            r"-in-([a-z0-9]+(?:-[a-z0-9]+)*)-jid-\d+",
+            lower_url,
+        )
+    if not match:
+        return None
+
+    slug = match.group(1)
+    parts = slug.split("-")
+    if len(parts) >= 2 and len(parts[-1]) == 2:
+        state = parts[-1].upper()
+        city = " ".join(part.capitalize() for part in parts[:-1])
+        return f"{city}, {state}"
+
+    city = " ".join(part.capitalize() for part in parts)
+    return city if city else None
+
+
+def is_work_location_type(value: str | None) -> bool:
+    cleaned = normalize_text(value)
+    return cleaned in {"remote", "hybrid", "on-site", "onsite", "on site"}
 
 
 def title_from_job_url(url: str | None) -> str | None:
@@ -244,6 +312,8 @@ def is_career_listing_url(url: str | None, career_page: str | None = None) -> bo
         r"/jobs/?$",
         r"/join-us/?$",
         r"/work-with-us/?$",
+        r"/postings/search/?$",
+        r"/current-openings/?$",
     )
     return any(re.search(pattern, lower) for pattern in listing_patterns)
 

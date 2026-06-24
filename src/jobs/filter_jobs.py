@@ -36,7 +36,11 @@ def load_job_keywords(config_path: Path | None = None) -> dict[str, list[str]]:
     return keywords
 
 
-def _search_text(candidate: JobCandidate) -> str:
+def _search_text(candidate: JobCandidate, *, title_only: bool = False) -> str:
+    if title_only:
+        return normalize_text(
+            " ".join(part for part in (candidate.title, candidate.location or "") if part)
+        )
     return normalize_text(
         " ".join(
             part
@@ -58,10 +62,15 @@ def _find_matches(text: str, keywords: list[str]) -> list[str]:
     return matches
 
 
-def score_job(candidate: JobCandidate, keywords: dict[str, list[str]] | None = None) -> tuple[float, list[str]]:
+def score_job(
+    candidate: JobCandidate,
+    keywords: dict[str, list[str]] | None = None,
+    *,
+    title_only: bool = False,
+) -> tuple[float, list[str]]:
     """Return keyword_score and matched keyword list for a job candidate."""
     config = keywords or load_job_keywords()
-    text = _search_text(candidate)
+    text = _search_text(candidate, title_only=title_only)
     title_text = normalize_text(candidate.title)
 
     high_value_matches = _find_matches(title_text, config["high_value_roles"])
@@ -93,10 +102,11 @@ def should_save_job(
     *,
     min_keyword_score: float = DEFAULT_MIN_KEYWORD_SCORE,
     keywords: dict[str, list[str]] | None = None,
+    title_only: bool = False,
 ) -> bool:
     """Return True if the job should be saved based on keyword filtering."""
     config = keywords or load_job_keywords()
-    score, matched = score_job(candidate, config)
+    score, matched = score_job(candidate, config, title_only=title_only)
     candidate.keyword_score = score
     candidate.matched_keywords = matched
 
@@ -106,19 +116,50 @@ def should_save_job(
     return score >= min_keyword_score
 
 
+def prescreen_jobs(
+    candidates: list[JobCandidate],
+    *,
+    min_keyword_score: float = DEFAULT_MIN_KEYWORD_SCORE,
+    title_only: bool = True,
+) -> list[JobCandidate]:
+    """Cheap title/metadata pre-screen before fetching full job descriptions."""
+    keywords = load_job_keywords()
+    screened: list[JobCandidate] = []
+    for candidate in candidates:
+        score, matched = score_job(candidate, keywords, title_only=title_only)
+        updated = candidate.model_copy(
+            update={"keyword_score": score, "matched_keywords": matched}
+        )
+        if should_save_job(
+            updated,
+            min_keyword_score=min_keyword_score,
+            keywords=keywords,
+            title_only=title_only,
+        ):
+            screened.append(updated)
+    screened.sort(key=lambda job: job.keyword_score, reverse=True)
+    return screened
+
+
 def filter_jobs(
     candidates: list[JobCandidate],
     *,
     min_keyword_score: float = DEFAULT_MIN_KEYWORD_SCORE,
+    title_only: bool = False,
 ) -> list[JobCandidate]:
     """Filter and score job candidates by keyword relevance."""
     keywords = load_job_keywords()
     filtered: list[JobCandidate] = []
     for candidate in candidates:
-        score, matched = score_job(candidate, keywords)
+        score, matched = score_job(candidate, keywords, title_only=title_only)
         updated = candidate.model_copy(
             update={"keyword_score": score, "matched_keywords": matched}
         )
-        if should_save_job(updated, min_keyword_score=min_keyword_score, keywords=keywords):
+        if should_save_job(
+            updated,
+            min_keyword_score=min_keyword_score,
+            keywords=keywords,
+            title_only=title_only,
+        ):
             filtered.append(updated)
     return filtered

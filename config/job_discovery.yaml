@@ -1,0 +1,16 @@
+# Job discovery budgets and pre-screening settings.
+# Search queries default to high_value_roles in config/job_keywords.yaml when omitted.
+
+prescreen:
+  min_keyword_score: 0.25
+  title_only: true
+  format_descriptions: true
+
+budgets:
+  max_search_queries: 10
+  max_listing_pages_per_query: 3
+  max_listings_per_company: 100
+  max_detail_fetches: 10
+  max_jobs_saved_per_company: 25
+
+search_queries: []

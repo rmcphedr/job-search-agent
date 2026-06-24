@@ -13,7 +13,8 @@ import pandas as pd
 from src.database.db import get_project_root
 from src.database.import_inventory import get_inventory_path
 from src.discovery.link_utils import clean_url
-from src.jobs.filter_jobs import DEFAULT_MIN_KEYWORD_SCORE, filter_jobs
+from src.jobs.discovery_config import DiscoveryConfig, load_discovery_config
+from src.jobs.filter_jobs import filter_jobs
 from src.jobs.job_extractors import extract_jobs_from_career_page
 from src.jobs.job_models import JobCandidate
 from src.jobs.save_jobs import SaveJobsResult, save_jobs
@@ -29,6 +30,7 @@ class RunSummary:
     companies_with_career_pages: int = 0
     companies_with_errors: int = 0
     raw_jobs_found: int = 0
+    prescreened_jobs: int = 0
     jobs_passing_filter: int = 0
     new_jobs_inserted: int = 0
     duplicates_skipped: int = 0
@@ -58,9 +60,16 @@ def run_job_discovery(
     dry_run: bool = False,
     force_refresh: bool = False,
     sleep_seconds: float = 0.0,
-    min_keyword_score: float = DEFAULT_MIN_KEYWORD_SCORE,
+    min_keyword_score: float | None = None,
     export_path: Path = DEFAULT_EXPORT,
+    discovery_config: DiscoveryConfig | None = None,
 ) -> RunSummary:
+    config = discovery_config or load_discovery_config()
+    effective_min_score = (
+        min_keyword_score
+        if min_keyword_score is not None
+        else config.prescreen.min_keyword_score
+    )
     inventory_path = get_inventory_path()
     frame = pd.read_csv(inventory_path, dtype=str)
     summary = RunSummary()
@@ -92,14 +101,21 @@ def run_job_discovery(
             career_page or "",
             company_name=company_name,
             company_id=company_id,
+            discovery_config=config,
         )
 
         if extraction["status"] != "OK":
             summary.companies_with_errors += 1
 
         raw_jobs: list[JobCandidate] = extraction["jobs"]  # type: ignore[assignment]
-        summary.raw_jobs_found += len(raw_jobs)
-        filtered_jobs = filter_jobs(raw_jobs, min_keyword_score=min_keyword_score)
+        summary.raw_jobs_found += int(extraction.get("raw_jobs_found") or len(raw_jobs))
+        summary.prescreened_jobs += int(extraction.get("prescreened_jobs") or len(raw_jobs))
+        filtered_jobs = filter_jobs(
+            raw_jobs,
+            min_keyword_score=effective_min_score,
+            title_only=False,
+        )
+        filtered_jobs = filtered_jobs[: config.budgets.max_jobs_saved_per_company]
         summary.jobs_passing_filter += len(filtered_jobs)
         all_filtered_jobs.extend(filtered_jobs)
 
@@ -110,13 +126,14 @@ def run_job_discovery(
                     "company_name": company_name,
                     "career_page": career_page,
                     "provider": extraction.get("provider"),
+                    "search_strategy": extraction.get("search_strategy"),
                     "status": extraction.get("status"),
                     "title": job.title,
                     "location": job.location,
                     "url": job.url,
                     "keyword_score": job.keyword_score,
                     "matched_keywords": "; ".join(job.matched_keywords),
-                    "notes": job.notes,
+                    "notes": extraction.get("notes"),
                 }
             )
 
@@ -150,8 +167,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--min-keyword-score",
         type=float,
-        default=DEFAULT_MIN_KEYWORD_SCORE,
-        help="Minimum keyword score required to save a job.",
+        default=None,
+        help="Minimum keyword score required to save a job (defaults to config/job_discovery.yaml).",
     )
     parser.add_argument(
         "--export",
@@ -186,6 +203,7 @@ def main() -> None:
     print(f"  companies with career pages: {summary.companies_with_career_pages}")
     print(f"  companies with errors: {summary.companies_with_errors}")
     print(f"  raw jobs found: {summary.raw_jobs_found}")
+    print(f"  jobs passing pre-screen: {summary.prescreened_jobs}")
     print(f"  jobs passing keyword filter: {summary.jobs_passing_filter}")
     print(f"  new jobs inserted: {summary.new_jobs_inserted}")
     print(f"  duplicates skipped: {summary.duplicates_skipped}")

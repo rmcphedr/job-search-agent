@@ -126,6 +126,56 @@ python -m src.database.inspect_db
 
 This stage extracts job listings and details only. It does not apply to jobs, send emails, or use LLM calls.
 
+## LLM Fit Scoring (Phase 1)
+
+Score companies and jobs against a structured candidate profile using a local Ollama model. Results are cached on disk and exported to CSV for dashboard integration.
+
+**Requirements:**
+
+- [Ollama](https://ollama.com/) running locally
+- Model installed: `qwen3:30b` (configured in `config/llm.yaml`)
+
+**Verify Ollama is running:**
+
+```bash
+ollama list
+curl http://localhost:11434/api/tags
+```
+
+**Score companies** (reads `data/company_inventory.csv`):
+
+```bash
+python -m src.llm.score_companies --limit 5
+python -m src.llm.score_companies --company "Valence Labs"
+python -m src.llm.score_companies --force-refresh
+```
+
+**Score jobs** (reads active jobs from SQLite):
+
+```bash
+python -m src.llm.score_jobs --limit 10
+python -m src.llm.score_jobs --company "Valence Labs"
+python -m src.llm.score_jobs --force-refresh
+```
+
+**Outputs:**
+
+- `outputs/company_fit_scores.csv` — company_name, fit_score, reasoning, confidence, timestamp
+- `outputs/job_fit_scores.csv` — job_title, company_name, fit_score, skills_match, skill_gaps, confidence, timestamp
+- `data/cache/company_fit/` and `data/cache/job_fit/` — cached JSON results (skipped when content unchanged)
+
+**Configuration:** `config/llm.yaml` (provider, model, temperature, batch size, cache toggle)
+
+**Prompt templates:** `prompts/company_fit.md`, `prompts/job_fit.md`
+
+**Dashboard helpers** (for future UI integration):
+
+```python
+from src.llm import load_company_fit_scores, load_job_fit_scores
+```
+
+Phase 1 does not include resume tailoring, cover letters, outreach generation, or database schema changes.
+
 ## Dashboard
 
 Launch the Streamlit dashboard to browse companies and jobs, run discovery pipelines, and review configuration:
@@ -226,8 +276,9 @@ job-search-agent/
 │   ├── jobs/         # Job posting extraction, filtering, and CLI
 │   ├── ui/           # Streamlit dashboard views and data loaders
 │   ├── scraping/     # HTTP fetching and parsing
-│   ├── enrichment/   # LLM-based enrichment
-│   ├── scoring/      # Fit scoring logic
+│   ├── llm/            # Local Ollama fit scoring (Phase 1)
+│   ├── enrichment/   # LLM-based enrichment (planned)
+│   ├── scoring/      # Keyword fit scoring logic
 │   └── utils/        # Shared helpers
 └── tests/
 ```

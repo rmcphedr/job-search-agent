@@ -105,15 +105,23 @@ def import_inventory(csv_path: Path | None = None) -> tuple[int, int]:
                     ) from exc
 
                 existing = connection.execute(
-                    "SELECT company_id FROM companies WHERE website = ?;",
-                    (normalized["website"],),
+                    "SELECT company_id FROM companies WHERE company_id = ?;",
+                    (normalized["company_id"],),
                 ).fetchone()
 
+                if existing is None:
+                    existing = connection.execute(
+                        "SELECT company_id FROM companies WHERE website = ?;",
+                        (normalized["website"],),
+                    ).fetchone()
+
                 if existing is not None:
+                    company_id = existing["company_id"]
                     connection.execute(
                         """
                         UPDATE companies
                         SET company_name = ?,
+                            website = ?,
                             industry = ?,
                             location = ?,
                             size = ?,
@@ -121,17 +129,18 @@ def import_inventory(csv_path: Path | None = None) -> tuple[int, int]:
                             priority = ?,
                             last_checked = ?,
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE website = ?;
+                        WHERE company_id = ?;
                         """,
                         (
                             normalized["company_name"],
+                            normalized["website"],
                             normalized["industry"],
                             normalized["location"],
                             normalized["size"],
                             normalized["hiring_status"],
                             normalized["priority"],
                             normalized["last_checked"],
-                            normalized["website"],
+                            company_id,
                         ),
                     )
                     updated += 1
