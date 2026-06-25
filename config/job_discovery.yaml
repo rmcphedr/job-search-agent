@@ -1,10 +1,12 @@
 # Job discovery budgets and pre-screening settings.
-# Search queries default to high_value_roles in config/job_keywords.yaml when omitted.
+# Search queries and location filters default to config/job_keywords.yaml.
 
 prescreen:
   min_keyword_score: 0.25
   title_only: true
   format_descriptions: true
+  require_location_match: false
+  location_score_boost: 0.10
 
 budgets:
   max_search_queries: 10
@@ -12,5 +14,45 @@ budgets:
   max_listings_per_company: 100
   max_detail_fetches: 10
   max_jobs_saved_per_company: 25
+  max_llm_triage_calls: 30
+  max_llm_fit_scores: 5
+
+llm_triage:
+  enabled: true
+  min_triage_score: 6.0
+  fallback_to_keywords: true
+
+llm_fit:
+  enabled: true
+
+# Company-size-aware overrides (uses inventory `size` column when present).
+budgets_by_size:
+  startup:
+    min_keyword_score: 0.15
+    max_search_queries: 8
+    max_detail_fetches: 25
+    max_llm_triage_calls: 20
+    max_llm_fit_scores: 8
+    max_jobs_saved_per_company: 30
+  mid:
+    min_keyword_score: 0.25
+    max_search_queries: 10
+    max_detail_fetches: 15
+    max_llm_triage_calls: 25
+    max_llm_fit_scores: 5
+    max_jobs_saved_per_company: 25
+  large:
+    min_keyword_score: 0.35
+    max_search_queries: 12
+    max_listing_pages_per_query: 4
+    max_detail_fetches: 10
+    max_llm_triage_calls: 30
+    max_llm_fit_scores: 5
+    max_jobs_saved_per_company: 20
+  default:
+    min_keyword_score: 0.25
+    max_search_queries: 10
+    max_detail_fetches: 10
+    max_jobs_saved_per_company: 25
 
 search_queries: []

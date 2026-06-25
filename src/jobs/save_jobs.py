@@ -85,9 +85,22 @@ def _find_existing_job_id(
 def _build_fit_reason(candidate: JobCandidate) -> str:
     keywords = ", ".join(candidate.matched_keywords[:8])
     provider = candidate.provider or "unknown"
+    parts = [f"provider={provider}"]
+    if candidate.triage_score is not None:
+        parts.append(f"triage={candidate.triage_score:.1f}")
     if keywords:
-        return f"provider={provider}; matched={keywords}"
-    return f"provider={provider}; matched=none"
+        parts.append(f"matched={keywords}")
+    else:
+        parts.append("matched=none")
+    if candidate.llm_fit_score is not None:
+        parts.append(f"llm_fit={candidate.llm_fit_score:.1f}")
+    return "; ".join(parts)
+
+
+def _resolve_fit_score(candidate: JobCandidate) -> float:
+    if candidate.llm_fit_score is not None:
+        return round(candidate.llm_fit_score, 2)
+    return round(candidate.keyword_score * 10, 2)
 
 
 def save_jobs(
@@ -119,7 +132,7 @@ def save_jobs(
                 content_hash=content_hash,
             )
 
-            fit_score = round(candidate.keyword_score * 10, 2)
+            fit_score = _resolve_fit_score(candidate)
             fit_reason = _build_fit_reason(candidate)
 
             if existing_job_id is not None:

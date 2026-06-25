@@ -25,6 +25,8 @@ from src.discovery.models import CompanyCandidate, DirectorySource
 
 logger = logging.getLogger(__name__)
 
+ProgressCallback = Callable[[int, int, str], None]
+
 DEFAULT_LSBC_PROFILE_LIMIT = 100
 LSBC_DEFAULT_CATEGORY = "Life Sciences BC Member"
 LSBC_SOURCE_CATEGORY_MAX_LEN = 80
@@ -419,10 +421,35 @@ def collect_life_sciences_bc_profile_urls(
     return links
 
 
+def _filter_life_sciences_bc_profile_links(
+    profile_links: list[tuple[str, str | None]],
+    *,
+    profile_offset: int = 0,
+    skip_profile_urls: set[str] | None = None,
+    profile_limit: int | None = None,
+) -> list[tuple[str, str | None]]:
+    """Apply offset, skip-existing, and limit to LSBC profile links."""
+    filtered = profile_links
+    if profile_offset > 0:
+        filtered = filtered[profile_offset:]
+    if skip_profile_urls:
+        filtered = [
+            (profile_url, listing_name)
+            for profile_url, listing_name in filtered
+            if profile_url.rstrip("/") not in skip_profile_urls
+        ]
+    if profile_limit is not None:
+        filtered = filtered[:profile_limit]
+    return filtered
+
+
 def extract_life_sciences_bc_member_directory(
     source: DirectorySource,
     html: str,
     profile_limit: int | None = None,
+    profile_offset: int = 0,
+    skip_profile_urls: set[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[CompanyCandidate]:
     """Two-step Life Sciences BC extraction: listing page, then member profile pages."""
     profile_links = _collect_life_sciences_bc_profile_urls(source, html)
@@ -431,8 +458,37 @@ def extract_life_sciences_bc_member_directory(
         logger.warning("No Life Sciences BC profile links found on listing page.")
         return []
 
+    skipped_existing = 0
+    if skip_profile_urls:
+        skipped_existing = sum(
+            1 for profile_url, _ in profile_links if profile_url.rstrip("/") in skip_profile_urls
+        )
+
     limit = profile_limit if profile_limit is not None else DEFAULT_LSBC_PROFILE_LIMIT
-    profile_links = profile_links[:limit]
+    profile_links = _filter_life_sciences_bc_profile_links(
+        profile_links,
+        profile_offset=profile_offset,
+        skip_profile_urls=skip_profile_urls,
+        profile_limit=limit,
+    )
+
+    if skip_profile_urls and skipped_existing:
+        logger.info(
+            "Skipping %s Life Sciences BC profile(s) already in inventory.",
+            skipped_existing,
+        )
+    if profile_offset:
+        logger.info("Starting at profile offset %s.", profile_offset)
+
+    if not profile_links:
+        logger.warning(
+            "No Life Sciences BC profile links left to process (found=%s, offset=%s, skipped=%s).",
+            total_found,
+            profile_offset,
+            skipped_existing,
+        )
+        return []
+
     logger.info(
         "Following %s of %s Life Sciences BC profile link(s) (limit=%s).",
         len(profile_links),
@@ -441,10 +497,16 @@ def extract_life_sciences_bc_member_directory(
     )
 
     candidates: list[CompanyCandidate] = []
-    for profile_url, listing_name in profile_links:
+    total = len(profile_links)
+    for index, (profile_url, listing_name) in enumerate(profile_links, start=1):
+        label = listing_name or profile_url
+        if progress_callback is not None:
+            progress_callback(index, total, f"Fetching profile: {label}")
         candidate = extract_life_sciences_bc_profile(source, profile_url, listing_name)
         if candidate is not None:
             candidates.append(candidate)
+            if progress_callback is not None:
+                progress_callback(index, total, f"Found company: {candidate.company_name}")
 
     return _dedupe_candidates(candidates)
 
@@ -453,10 +515,20 @@ def extract_member_directory(
     source: DirectorySource,
     html: str,
     profile_limit: int | None = None,
+    profile_offset: int = 0,
+    skip_profile_urls: set[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[CompanyCandidate]:
     """Extract candidates from a member directory page."""
     if source.source_id == "life_sciences_bc":
-        return extract_life_sciences_bc_member_directory(source, html, profile_limit)
+        return extract_life_sciences_bc_member_directory(
+            source,
+            html,
+            profile_limit,
+            profile_offset=profile_offset,
+            skip_profile_urls=skip_profile_urls,
+            progress_callback=progress_callback,
+        )
 
     soup = BeautifulSoup(html, "html.parser")
     candidates: list[CompanyCandidate] = []
@@ -710,6 +782,9 @@ STRATEGY_HANDLERS: dict[str, Callable[[DirectorySource, str], list[CompanyCandid
 def extract_candidates(
     source: DirectorySource,
     profile_limit: int | None = None,
+    profile_offset: int = 0,
+    skip_profile_urls: set[str] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[CompanyCandidate]:
     """Fetch a directory source page and extract company candidates."""
     status_code, html = fetch_url(source.url)
@@ -733,9 +808,18 @@ def extract_candidates(
 
     try:
         if source.strategy == "member_directory":
-            candidates = extract_member_directory(source, html, profile_limit=profile_limit)
+            candidates = extract_member_directory(
+                source,
+                html,
+                profile_limit=profile_limit,
+                profile_offset=profile_offset,
+                skip_profile_urls=skip_profile_urls,
+                progress_callback=progress_callback,
+            )
         else:
             candidates = handler(source, html)
+            if progress_callback is not None and candidates:
+                progress_callback(len(candidates), len(candidates), f"Extracted from {source.source_id}")
     except Exception as exc:
         logger.warning(
             "Skipping source %s due to extraction error: %s",

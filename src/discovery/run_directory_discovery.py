@@ -14,7 +14,7 @@ from src.discovery.deduplicate import deduplicate_candidates
 from src.discovery.load_sources import load_directory_sources
 from src.discovery.models import CompanyCandidate
 from src.discovery.strategies import extract_candidates
-from src.discovery.update_inventory import update_inventory
+from src.discovery.update_inventory import load_known_lsbc_profile_urls, update_inventory
 
 DEFAULT_OUTPUT = get_project_root() / "outputs" / "directory_candidates.csv"
 
@@ -31,21 +31,49 @@ def _save_candidates_csv(candidates: list[CompanyCandidate], output_path: Path) 
     frame.to_csv(output_path, index=False)
 
 
+def _print_progress(current: int, total: int, message: str) -> None:
+    print(f"[{current}/{total}] {message}", flush=True)
+
+
 def run_discovery(
     *,
     source_id: str | None = None,
     dry_run: bool = False,
     limit: int | None = None,
+    offset: int = 0,
+    skip_existing: bool = False,
     output_candidates: Path = DEFAULT_OUTPUT,
+    show_progress: bool = True,
 ) -> None:
     sources = load_directory_sources(source_id=source_id)
+    progress = _print_progress if show_progress else None
+    skip_profile_urls = load_known_lsbc_profile_urls() if skip_existing else None
+
+    if skip_existing and show_progress:
+        print(
+            f"Loaded {len(skip_profile_urls or [])} Life Sciences BC profile(s) from inventory to skip.",
+            flush=True,
+        )
 
     all_candidates: list[CompanyCandidate] = []
     per_source_counts: dict[str, int] = defaultdict(int)
 
-    for source in sources:
+    for source_index, source in enumerate(sources, start=1):
+        if show_progress:
+            print(
+                f"Source {source_index}/{len(sources)}: {source.source_id}",
+                flush=True,
+            )
         profile_limit = limit if source.source_id == "life_sciences_bc" else None
-        candidates = extract_candidates(source, profile_limit=profile_limit)
+        profile_offset = offset if source.source_id == "life_sciences_bc" else 0
+        source_skip_urls = skip_profile_urls if source.source_id == "life_sciences_bc" else None
+        candidates = extract_candidates(
+            source,
+            profile_limit=profile_limit,
+            profile_offset=profile_offset,
+            skip_profile_urls=source_skip_urls,
+            progress_callback=progress,
+        )
         per_source_counts[source.source_id] = len(candidates)
         all_candidates.extend(candidates)
 
@@ -67,7 +95,10 @@ def run_discovery(
         print("Dry run enabled: company inventory was not updated.")
         return
 
-    result = update_inventory(deduped)
+    if show_progress and deduped:
+        print("Updating company inventory...", flush=True)
+
+    result = update_inventory(deduped, progress_callback=progress)
     print("Inventory update:")
     print(f"  existing rows: {result.existing_rows}")
     print(f"  candidates received: {result.candidates_received}")
@@ -97,6 +128,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit profile pages for life_sciences_bc, or deduplicated candidates for other sources.",
     )
     parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Skip the first N profile links on the life_sciences_bc listing before processing.",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip Life Sciences BC profile URLs already present in company_inventory.csv.",
+    )
+    parser.add_argument(
         "--output-candidates",
         type=Path,
         default=DEFAULT_OUTPUT,
@@ -106,6 +148,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose",
         action="store_true",
         help="Enable informational logging.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress per-company progress output.",
     )
     return parser
 
@@ -120,7 +167,10 @@ def main() -> None:
             source_id=args.source_id,
             dry_run=args.dry_run,
             limit=args.limit,
+            offset=args.offset,
+            skip_existing=args.skip_existing,
             output_candidates=args.output_candidates,
+            show_progress=not args.quiet,
         )
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise SystemExit(f"Directory discovery failed: {exc}") from exc

@@ -34,6 +34,11 @@ class JobDiscoveryActionResult:
     jobs_found: int = 0
     jobs_inserted: int = 0
     duplicates_skipped: int = 0
+    raw_jobs_found: int = 0
+    prescreened_jobs: int = 0
+    triaged_jobs: int = 0
+    enriched_jobs: int = 0
+    llm_fit_scored: int = 0
     errors: int = 0
     company_results: dict[str, dict[str, object]] = field(default_factory=dict)
     error_message: str | None = None
@@ -191,13 +196,27 @@ def run_job_discovery_action(
         result.jobs_found += summary.jobs_passing_filter
         result.jobs_inserted += summary.new_jobs_inserted
         result.duplicates_skipped += summary.duplicates_skipped
+        result.raw_jobs_found += summary.raw_jobs_found
+        result.prescreened_jobs += summary.prescreened_jobs
+        result.triaged_jobs += summary.triaged_jobs
+        result.enriched_jobs += summary.enriched_jobs
+        result.llm_fit_scored += summary.llm_fit_scored
         result.errors += summary.companies_with_errors
+
+        company_stat = next(
+            (item for item in summary.company_stats if item.company_name == company_name),
+            None,
+        )
 
         if summary.companies_with_career_pages == 0:
             result.company_results[company_name] = {
                 "status": "skipped",
                 "message": "No valid career page",
                 "raw_jobs": 0,
+                "prescreened_jobs": 0,
+                "triaged_jobs": 0,
+                "enriched_jobs": 0,
+                "llm_fit_scored": 0,
                 "filtered_jobs": 0,
                 "inserted": 0,
             }
@@ -212,10 +231,18 @@ def run_job_discovery_action(
 
         result.company_results[company_name] = {
             "status": status,
-            "raw_jobs": summary.raw_jobs_found,
-            "filtered_jobs": summary.jobs_passing_filter,
+            "size_tier": company_stat.size_tier if company_stat else "default",
+            "raw_jobs": summary.raw_jobs_found if not company_stat else company_stat.raw_jobs_found,
+            "prescreened_jobs": company_stat.prescreened_jobs if company_stat else summary.prescreened_jobs,
+            "triaged_jobs": company_stat.triaged_jobs if company_stat else summary.triaged_jobs,
+            "enriched_jobs": company_stat.enriched_jobs if company_stat else summary.enriched_jobs,
+            "llm_fit_scored": company_stat.llm_fit_scored if company_stat else summary.llm_fit_scored,
+            "filtered_jobs": summary.jobs_passing_filter if not company_stat else company_stat.jobs_saved,
             "inserted": summary.new_jobs_inserted,
             "duplicates_skipped": summary.duplicates_skipped,
+            "search_strategy": company_stat.search_strategy if company_stat else None,
+            "notes": company_stat.notes if company_stat else "",
+            "checked_at": _utc_now(),
         }
 
     _record_run(
@@ -226,6 +253,11 @@ def run_job_discovery_action(
                 "jobs_found": result.jobs_found,
                 "jobs_inserted": result.jobs_inserted,
                 "duplicates_skipped": result.duplicates_skipped,
+                "raw_jobs_found": result.raw_jobs_found,
+                "prescreened_jobs": result.prescreened_jobs,
+                "triaged_jobs": result.triaged_jobs,
+                "enriched_jobs": result.enriched_jobs,
+                "llm_fit_scored": result.llm_fit_scored,
                 "errors": result.errors,
             },
             "companies": result.company_results,

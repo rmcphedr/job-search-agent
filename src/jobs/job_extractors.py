@@ -15,7 +15,7 @@ from src.discovery.fetch import get_request_timeout, get_user_agent
 from src.discovery.link_utils import clean_url, normalize_url
 from src.jobs.job_detail_parsers import fix_text_encoding, parse_job_detail_from_html
 from src.jobs.discovery_config import DiscoveryConfig, load_discovery_config
-from src.jobs.filter_jobs import prescreen_jobs, score_job
+from src.jobs.filter_jobs import prescreen_jobs, score_job, apply_location_score_boost
 from src.jobs.job_models import JobCandidate
 from src.jobs.search_strategies import (
     ABBVIE_PORTAL,
@@ -44,6 +44,7 @@ from src.jobs.job_url_utils import (
     truncate_text,
 )
 from src.llm.job_description import format_job_description_safe
+from src.llm.job_triage import triage_jobs
 
 logger = logging.getLogger(__name__)
 
@@ -887,8 +888,8 @@ def _apply_prescreen_and_enrich(
     company_name: str,
     discovery_config: DiscoveryConfig,
     enrich_details: bool,
-) -> tuple[list[JobCandidate], int, int]:
-    """Pre-screen on title/metadata, then enrich only the top candidates by score."""
+) -> tuple[list[JobCandidate], int, int, int, int]:
+    """Pre-screen, LLM-triage, then enrich only triage survivors."""
     raw_count = len(jobs)
     jobs = dedupe_job_candidates(jobs)
     jobs = [job for job in jobs if _looks_like_real_job(job)]
@@ -897,14 +898,25 @@ def _apply_prescreen_and_enrich(
         jobs,
         min_keyword_score=discovery_config.prescreen.min_keyword_score,
         title_only=discovery_config.prescreen.title_only,
+        location_filters=discovery_config.location_filters,
+        require_location_match=discovery_config.prescreen.require_location_match,
+        location_score_boost=discovery_config.prescreen.location_score_boost,
     )
     prescreened = prescreened[: discovery_config.budgets.max_jobs_saved_per_company]
 
-    if not enrich_details or not prescreened:
-        return prescreened, raw_count, len(prescreened)
+    triaged, triaged_count = triage_jobs(
+        prescreened,
+        enabled=discovery_config.llm_triage.enabled,
+        min_triage_score=discovery_config.llm_triage.min_triage_score,
+        max_calls=discovery_config.budgets.max_llm_triage_calls,
+        fallback_to_keywords=discovery_config.llm_triage.fallback_to_keywords,
+    )
+
+    if not enrich_details or not triaged:
+        return triaged, raw_count, len(prescreened), triaged_count, 0
 
     enrich_limit = discovery_config.budgets.max_detail_fetches
-    to_enrich = prescreened[:enrich_limit]
+    to_enrich = triaged[:enrich_limit]
     enriched = enrich_job_details(
         to_enrich,
         max_fetches=enrich_limit,
@@ -913,21 +925,37 @@ def _apply_prescreen_and_enrich(
     )
 
     enriched_by_url = {job.url: job for job in enriched if job.url}
+    enriched_count = sum(
+        1
+        for job in enriched_by_url.values()
+        if job.description and len(job.description) > 120
+    )
     final_jobs: list[JobCandidate] = []
     keywords = None
-    for job in prescreened:
+    for job in triaged:
         enriched_job = enriched_by_url.get(job.url)
         if enriched_job is not None:
             score, matched = score_job(enriched_job, keywords, title_only=False)
+            score = apply_location_score_boost(
+                score,
+                location=enriched_job.location,
+                location_filters=discovery_config.location_filters,
+                boost=discovery_config.prescreen.location_score_boost,
+            )
             final_jobs.append(
                 enriched_job.model_copy(
-                    update={"keyword_score": score, "matched_keywords": matched}
+                    update={
+                        "keyword_score": score,
+                        "matched_keywords": matched,
+                        "triage_score": job.triage_score,
+                        "notes": job.notes,
+                    }
                 )
             )
         else:
             final_jobs.append(job)
 
-    return final_jobs, raw_count, len(prescreened)
+    return final_jobs, raw_count, len(prescreened), triaged_count, enriched_count
 
 
 def extract_jobs_from_career_page(
@@ -954,6 +982,8 @@ def extract_jobs_from_career_page(
             "jobs": [],
             "raw_jobs_found": 0,
             "prescreened_jobs": 0,
+            "triaged_jobs": 0,
+            "enriched_jobs": 0,
             "search_strategy": None,
             "notes": "Invalid career page URL",
         }
@@ -968,6 +998,8 @@ def extract_jobs_from_career_page(
             "jobs": [],
             "raw_jobs_found": 0,
             "prescreened_jobs": 0,
+            "triaged_jobs": 0,
+            "enriched_jobs": 0,
             "search_strategy": None,
             "notes": f"Failed to fetch career page (status={status_code})",
         }
@@ -1007,11 +1039,13 @@ def extract_jobs_from_career_page(
         )
         notes_prefix = f"Landing-page extraction via {provider}"
 
-    final_jobs, raw_count, prescreened_count = _apply_prescreen_and_enrich(
-        jobs,
-        company_name=company_name,
-        discovery_config=config,
-        enrich_details=enrich_details,
+    final_jobs, raw_count, prescreened_count, triaged_count, enriched_count = (
+        _apply_prescreen_and_enrich(
+            jobs,
+            company_name=company_name,
+            discovery_config=config,
+            enrich_details=enrich_details,
+        )
     )
 
     return {
@@ -1022,8 +1056,14 @@ def extract_jobs_from_career_page(
         "jobs": final_jobs,
         "raw_jobs_found": raw_count,
         "prescreened_jobs": prescreened_count,
+        "triaged_jobs": triaged_count,
+        "enriched_jobs": enriched_count,
         "search_strategy": search_strategy,
-        "notes": f"{notes_prefix}; {prescreened_count}/{raw_count} passed pre-screen; saved {len(final_jobs)}",
+        "notes": (
+            f"{notes_prefix}; {prescreened_count}/{raw_count} passed pre-screen; "
+            f"{triaged_count} passed LLM triage; {enriched_count} enriched; "
+            f"saved {len(final_jobs)}"
+        ),
     }
 
 

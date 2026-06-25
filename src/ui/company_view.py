@@ -401,10 +401,17 @@ def _render_last_result_summary() -> None:
             st.error(job_result.error_message)
         j1, j2, j3, j4, j5 = st.columns(5)
         j1.metric("Companies checked", job_result.companies_checked)
-        j2.metric("Jobs found", job_result.jobs_found)
+        j2.metric("Jobs saved", job_result.jobs_found)
         j3.metric("Jobs inserted", job_result.jobs_inserted)
-        j4.metric("Duplicates skipped", job_result.duplicates_skipped)
-        j5.metric("Errors", job_result.errors)
+        j4.metric("LLM triaged", job_result.triaged_jobs)
+        j5.metric("LLM fit scored", job_result.llm_fit_scored)
+        f1, f2, f3, f4 = st.columns(4)
+        f1.metric("Raw jobs", job_result.raw_jobs_found)
+        f2.metric("Pre-screened", job_result.prescreened_jobs)
+        f3.metric("Enriched", job_result.enriched_jobs)
+        f4.metric("Duplicates skipped", job_result.duplicates_skipped)
+        if job_result.errors:
+            st.warning(f"{job_result.errors} companies had errors during job discovery.")
 
 
 def _render_run_history() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -43,6 +44,8 @@ DISCOVERY_COLUMNS = [
 
 ALL_COLUMNS = BASE_COLUMNS + DISCOVERY_COLUMNS
 NAME_SIMILARITY_THRESHOLD = 88
+
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass
@@ -370,9 +373,39 @@ def _fill_empty_fields(row: pd.Series, candidate: CompanyCandidate) -> tuple[pd.
     return row, updates
 
 
+def load_known_lsbc_profile_urls(inventory_path: Path | None = None) -> set[str]:
+    """Return normalized Life Sciences BC member profile URLs already in inventory."""
+    path = inventory_path or get_inventory_path()
+    if not path.exists():
+        return set()
+
+    frame = pd.read_csv(path, dtype=str)
+    known: set[str] = set()
+
+    for _, row in frame.iterrows():
+        for field in ("source_url", "website"):
+            url = _normalize_website(row.get(field))
+            if url and is_life_sciences_bc_profile_url(url):
+                known.add(url.rstrip("/"))
+
+        notes = str(row.get("notes", "") or "")
+        if notes.startswith("{") and "profile_url" in notes:
+            try:
+                payload = json.loads(notes)
+                if isinstance(payload, dict):
+                    profile_url = _normalize_website(payload.get("profile_url"))
+                    if profile_url and is_life_sciences_bc_profile_url(profile_url):
+                        known.add(profile_url.rstrip("/"))
+            except json.JSONDecodeError:
+                pass
+
+    return known
+
+
 def update_inventory(
     candidates: list[CompanyCandidate],
     inventory_path: Path | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> InventoryUpdateResult:
     """Merge discovered candidates into the company inventory CSV."""
     path = inventory_path or get_inventory_path()
@@ -385,8 +418,12 @@ def update_inventory(
     skipped_duplicates = 0
     updated_fields = 0
     next_id = _next_company_id(frame)
+    total = len(candidates)
 
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates, start=1):
+        if progress_callback is not None:
+            progress_callback(index, total, f"Merging: {candidate.company_name}")
+
         if not candidate.website or not str(candidate.website).strip():
             skipped_duplicates += 1
             continue

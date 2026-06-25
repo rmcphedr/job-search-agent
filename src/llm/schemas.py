@@ -57,3 +57,20 @@ class JobFitResult(BaseModel):
         if value is None or value == "":
             return 0.0
         return _clamp_score(value)
+
+
+class JobTriageResult(BaseModel):
+    job_title: str
+    company_name: str
+    worth_reviewing: bool
+    triage_score: float = Field(ge=0, le=10)
+    reason: str
+    matched_role_signals: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0, le=10)
+
+    @field_validator("triage_score", "confidence", mode="before")
+    @classmethod
+    def validate_scores(cls, value: Any) -> float:
+        if value is None or value == "":
+            return 0.0
+        return _clamp_score(value)

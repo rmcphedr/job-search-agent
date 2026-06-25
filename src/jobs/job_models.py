@@ -19,8 +19,19 @@ class JobCandidate(BaseModel):
     source_career_page: str
     keyword_score: float = 0.0
     matched_keywords: list[str] = Field(default_factory=list)
+    triage_score: float | None = None
+    llm_fit_score: float | None = None
     content_hash: str | None = None
     notes: str | None = None
+
+    @field_validator("triage_score", "llm_fit_score")
+    @classmethod
+    def validate_optional_scores(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        if not 0.0 <= value <= 10.0:
+            raise ValueError("score must be between 0 and 10.")
+        return value
 
     @field_validator("title")
     @classmethod

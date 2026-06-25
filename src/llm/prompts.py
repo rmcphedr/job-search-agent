@@ -10,6 +10,7 @@ from src.database.db import get_project_root
 PROMPTS_DIR = get_project_root() / "prompts"
 COMPANY_FIT_TEMPLATE_PATH = PROMPTS_DIR / "company_fit.md"
 JOB_FIT_TEMPLATE_PATH = PROMPTS_DIR / "job_fit.md"
+JOB_TRIAGE_TEMPLATE_PATH = PROMPTS_DIR / "job_triage.md"
 
 
 def _load_template(path: Path) -> str:
@@ -74,4 +75,28 @@ def build_job_fit_prompt(job_record: dict[str, object], *, company_context: dict
         description=_normalize_field(job_record.get("description")),
         industry=_normalize_field(context.get("industry"), default="Not provided"),
         company_description=_normalize_field(context.get("description"), default="Not provided"),
+    )
+
+
+def build_job_triage_prompt(job_record: dict[str, object]) -> str:
+    """Build a title-only triage prompt from minimal job metadata."""
+    template = _load_template(JOB_TRIAGE_TEMPLATE_PATH)
+    matched = job_record.get("matched_keywords") or []
+    if isinstance(matched, list):
+        matched_text = ", ".join(str(item) for item in matched)
+    else:
+        matched_text = str(matched)
+
+    keyword_score = job_record.get("keyword_score")
+    try:
+        keyword_score_text = f"{float(keyword_score):.2f}" if keyword_score is not None else "0.00"
+    except (TypeError, ValueError):
+        keyword_score_text = "0.00"
+
+    return template.format(
+        job_title=_normalize_field(job_record.get("title") or job_record.get("job_title")),
+        company_name=_normalize_field(job_record.get("company") or job_record.get("company_name")),
+        location=_normalize_field(job_record.get("location")),
+        keyword_score=keyword_score_text,
+        matched_keywords=matched_text or "none",
     )

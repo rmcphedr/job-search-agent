@@ -64,6 +64,25 @@ def job_cache_key(job_record: dict[str, object]) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def job_triage_cache_key(job_record: dict[str, object]) -> str:
+    """Return SHA256 cache key for title-only job triage."""
+    matched = job_record.get("matched_keywords") or []
+    if isinstance(matched, list):
+        matched_text = ",".join(str(item) for item in matched)
+    else:
+        matched_text = str(matched)
+    payload = "".join(
+        [
+            _normalize(job_record.get("title") or job_record.get("job_title")),
+            _normalize(job_record.get("company") or job_record.get("company_name")),
+            _normalize(job_record.get("location")),
+            matched_text,
+            _normalize(job_record.get("keyword_score")),
+        ]
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def load_cached_result(cache_type: str, cache_key: str) -> dict[str, Any] | None:
     """Load a cached JSON result if present."""
     path = get_cache_dir() / cache_type / f"{cache_key}.json"

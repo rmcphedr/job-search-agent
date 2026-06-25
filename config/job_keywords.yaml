@@ -59,3 +59,23 @@ exclude_role_keywords:
   - recruiter
   - recruiting coordinator
   - business development representative
+
+search_queries:
+  - machine learning
+  - data scientist
+  - research scientist
+  - bioinformatics
+  - computational biology
+  - ai scientist
+  - deep learning
+
+location_filters:
+  - canada
+  - montreal
+  - toronto
+  - vancouver
+  - remote
+  - british columbia
+  - bc
+  - san francisco
+  - chicago

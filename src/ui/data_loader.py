@@ -37,6 +37,10 @@ COMPANY_TABLE_COLUMNS = (
     "career_page_status",
     "job_search_status",
     "jobs_found",
+    "last_raw_jobs",
+    "last_prescreened_jobs",
+    "last_triaged_jobs",
+    "last_enriched_jobs",
     "last_checked",
     "career_page",
 )
@@ -309,6 +313,16 @@ def build_company_dashboard_frame() -> pd.DataFrame:
                     career_page_checked=career_checked,
                 ),
                 "jobs_found": jobs_found,
+                "last_raw_jobs": _coerce_int(search_record.get("raw_jobs")) if search_record else 0,
+                "last_prescreened_jobs": _coerce_int(search_record.get("prescreened_jobs"))
+                if search_record
+                else 0,
+                "last_triaged_jobs": _coerce_int(search_record.get("triaged_jobs"))
+                if search_record
+                else 0,
+                "last_enriched_jobs": _coerce_int(search_record.get("enriched_jobs"))
+                if search_record
+                else 0,
                 "last_checked": _pick_last_checked(
                     career_checked_at,
                     row.get("last_checked"),
