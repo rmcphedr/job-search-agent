@@ -33,6 +33,16 @@ outputs/*
 data/raw/
 data/cache/
 
+# Agent staging (local run artifacts)
+data/staging/*
+!data/staging/.gitkeep
+data/source_evidence/*
+!data/source_evidence/.gitkeep
+
+# Agent reports (generated)
+reports/**/*
+!reports/**/.gitkeep
+
 # Large data files
 *.parquet
 *.feather

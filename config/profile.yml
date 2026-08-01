@@ -1,0 +1,32 @@
+# Agent-facing profile index. Canonical narrative lives in user/*.md
+
+profile_version: 1
+
+files:
+  master_cv: user/master_cv.md
+  career_profile: user/career_profile.md
+  proof_points: user/proof_points.md
+  project_inventory: user/project_inventory.md
+  voice_style: user/voice_style.md
+
+evaluation:
+  target_roles_config: config/target_roles.yml
+  scoring_weights_config: config/scoring_weights.yml
+  job_keywords_config: config/job_keywords.yaml
+
+preferences:
+  locations:
+    - Montreal
+    - Toronto
+    - Vancouver
+    - Canada
+    - Remote
+  industries:
+    - AI
+    - healthcare
+    - biotech
+    - neuroscience
+    - neurotechnology
+    - computational biology
+  min_company_fit_score: 6.0
+  min_job_fit_score: 6.5

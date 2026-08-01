@@ -2,6 +2,23 @@
 
 A Python-based job-search intelligence agent for discovering, tracking, and scoring opportunities at AI, healthcare, neuroscience, and biotech companies.
 
+## Agentic v2 architecture
+
+This branch shifts **judgment and web navigation** to Cursor agent skills while keeping **Python** for schemas, validation, deduplication, storage, and orchestration.
+
+| Layer | Location |
+|-------|----------|
+| Agent router | [AGENTS.md](AGENTS.md) |
+| Data contract | [DATA_CONTRACT.md](DATA_CONTRACT.md) |
+| User profile | [user/](user/) |
+| Agent skills | [skills/](skills/) |
+| Staging outputs | `data/staging/`, `data/source_evidence/` |
+| Deterministic code | [src/](src/) (unchanged modules) |
+
+**MVP workflow:** company discovery → Python merge → company fit evaluation → job discovery from website → Python merge → job fit evaluation → ranking.
+
+Start with [AGENTS.md](AGENTS.md). Agents write JSON to `data/staging/`; Python CLIs merge into `data/company_inventory.csv` and SQLite. Legacy `outputs/` and `prompts/` remain for the Ollama scorer and dashboard.
+
 ## Description
 
 This project helps prioritize job search efforts by maintaining a company inventory, scraping career pages, storing structured job data, and scoring role fit against configurable criteria. It is designed as a portfolio-ready pipeline that can be extended with LLM enrichment and a Streamlit dashboard.
@@ -264,21 +281,25 @@ Only the scaffold, configuration templates, and seed company inventory are track
 
 ```
 job-search-agent/
+├── AGENTS.md         # Agent workflow router (v2)
+├── DATA_CONTRACT.md  # Schemas, file ownership, merge rules
 ├── app/              # Streamlit dashboard entry point
-├── config/           # settings.yaml, scoring.yaml, job_keywords.yaml
-├── data/             # company_inventory.csv, raw/, cache/
-├── outputs/          # generated reports and exports
-├── prompts/          # LLM prompt templates (planned)
+├── config/           # settings.yaml, profile.yml, sources.yml, …
+├── user/             # CV, career profile, proof points (human-owned)
+├── skills/           # Agent SKILL.md workflows
+├── data/             # company_inventory.csv, staging/, source_evidence/
+├── reports/          # company_fit/, job_fit/ evaluation reports
+├── outputs/          # Legacy CSV exports (fit scores, discovery previews)
+├── prompts/          # Ollama prompt templates (legacy scorer)
 ├── src/
+│   ├── schemas/      # Re-exports Pydantic models for agent JSON
+│   ├── validators/   # Staging file validation helpers
 │   ├── database/     # SQLite models and queries
-│   ├── discovery/    # Directory source scraping and inventory updates
+│   ├── discovery/    # Directory scraping and inventory merge
 │   ├── careers/      # Career page URL discovery
-│   ├── jobs/         # Job posting extraction, filtering, and CLI
-│   ├── ui/           # Streamlit dashboard views and data loaders
-│   ├── scraping/     # HTTP fetching and parsing
-│   ├── llm/            # Local Ollama fit scoring (Phase 1)
-│   ├── enrichment/   # LLM-based enrichment (planned)
-│   ├── scoring/      # Keyword fit scoring logic
-│   └── utils/        # Shared helpers
+│   ├── jobs/         # Job extraction, filtering, CLI
+│   ├── llm/          # Ollama fit scoring (Phase 1)
+│   ├── ui/           # Streamlit dashboard
+│   └── …
 └── tests/
 ```

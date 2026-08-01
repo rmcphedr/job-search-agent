@@ -1,0 +1,28 @@
+# Target roles for discovery filtering and fit evaluation.
+# Python CLI also reads config/scoring.yaml and config/job_keywords.yaml.
+
+target_roles:
+  - machine learning scientist
+  - machine learning engineer
+  - AI scientist
+  - research scientist
+  - data scientist
+  - bioinformatician
+  - computational biologist
+  - scientific consultant
+
+seniority:
+  level: postdoc_to_industry
+  avoid:
+    - intern
+    - co-op
+    - new grad only
+
+role_signals:
+  high_value:
+    - machine learning
+    - deep learning
+    - AI
+    - research scientist
+    - bioinformatics
+    - computational biology

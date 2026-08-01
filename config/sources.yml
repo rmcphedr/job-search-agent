@@ -1,0 +1,32 @@
+# Agent-facing discovery source index.
+# Canonical scrape definitions: config/directory_sources.yaml (Python CLI).
+
+sources_config: config/directory_sources.yaml
+
+discovery_modes:
+  directory:
+    description: Scrape curated member/job directory pages
+    python_cli: python -m src.discovery.run_directory_discovery
+    skill: skills/company_discovery/SKILL.md
+  manual:
+    description: Agent researches companies via web search
+    skill: skills/company_discovery/SKILL.md
+
+primary_sources:
+  - source_id: biotech_canada
+    name: BIOTECanada Member Listings
+  - source_id: neurotech_jobs
+    name: Neurotech Jobs
+  - source_id: life_sciences_bc
+    name: Life Sciences BC
+  - source_id: mars
+    name: MaRS Discovery District
+  - source_id: centech
+    name: Centech
+  - source_id: creative_destruction_lab
+    name: Creative Destruction Lab
+
+output:
+  staging_dir: data/staging
+  evidence_dir: data/source_evidence
+  preview_csv: outputs/directory_candidates.csv
