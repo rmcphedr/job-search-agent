@@ -35,7 +35,7 @@ raw = json.loads(Path("data/staging/company_candidates_run.json").read_text())
 records = [CompanyCandidate.model_validate(row) for row in raw]
 ```
 
-Future: `src/validators/merge.py` will batch-validate and merge into canonical CSV/SQLite.
+Future: batch-validate and merge via `python -m src.validators.merge` and `python -m src.orchestration.watch_staging`.
 
 ## CSV columns
 

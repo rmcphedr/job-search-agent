@@ -4,6 +4,10 @@ This project uses an **agentic-v2** architecture: coding agents perform judgment
 
 Read [DATA_CONTRACT.md](DATA_CONTRACT.md) before reading or writing any data file.
 
+**Planning docs:** [docs/](docs/) — PRDs and [Architectural Decision Records](docs/adr/README.md). Update an ADR when making core feature decisions (see `.cursor/rules/architectural-decisions.mdc`).
+
+**Hermes orchestration (in progress):** [docs/prd/event-driven-company-pipeline.md](docs/prd/event-driven-company-pipeline.md) — event-triggered discovery → staging → merge → evaluation in one chat session.
+
 ## Architecture layers
 
 | Layer | Location | Who modifies |
@@ -110,6 +114,7 @@ Python aggregates scores and produces a shortlist. Agents may propose rank adjus
 
 | Skill | Purpose |
 |-------|---------|
+| [hermes_orchestrator/SKILL.md](skills/hermes_orchestrator/SKILL.md) | Event-driven discovery + evaluation orchestration |
 | [job_discovery_from_board/SKILL.md](skills/job_discovery_from_board/SKILL.md) | Board-specific discovery (LinkedIn, Indeed, etc.) |
 | [resume_tailoring/SKILL.md](skills/resume_tailoring/SKILL.md) | Placeholder — not implemented |
 

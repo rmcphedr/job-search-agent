@@ -1,0 +1,35 @@
+---
+description: Require ADR updates when making core architecture or feature ownership decisions
+alwaysApply: true
+---
+
+# Architectural decisions
+
+When you **decide or implement** a core feature that affects architecture, data flow, or agent/Python boundaries:
+
+1. Read [docs/adr/README.md](docs/adr/README.md) and check the [ADR index](docs/adr/README.md#index) for an existing record.
+2. If none exists, create `docs/adr/ADR-NNN-short-title.md` from [docs/adr/template.md](docs/adr/template.md).
+3. If an existing ADR is overturned, set its status to **Superseded** and link to the new ADR.
+4. Add the new ADR to the index table in `docs/adr/README.md`.
+5. Update related docs: `DATA_CONTRACT.md`, `AGENTS.md`, or relevant PRD in `docs/prd/`.
+
+## Requires an ADR
+
+- Staging vs canonical ownership changes
+- New event types, orchestration patterns, or agent roles (e.g. Hermes sub-agents)
+- New canonical file paths or schema fields
+- Choice between agent vs Python for a pipeline step
+- Storage model changes (CSV, SQLite, new tables)
+
+## Does not require an ADR
+
+- Bug fixes preserving behavior
+- Refactors with no architectural change
+- UI copy, styling, or non-core dashboard tweaks
+
+## PRD vs ADR
+
+- **PRD** (`docs/prd/`) — what to build, user stories, phases
+- **ADR** (`docs/adr/`) — why a specific technical choice was made
+
+When implementing a PRD phase that introduces a new architectural choice, add or update an ADR in the same change set.

@@ -10,10 +10,13 @@ This branch shifts **judgment and web navigation** to Cursor agent skills while 
 |-------|----------|
 | Agent router | [AGENTS.md](AGENTS.md) |
 | Data contract | [DATA_CONTRACT.md](DATA_CONTRACT.md) |
+| PRDs & ADRs | [docs/](docs/) |
 | User profile | [user/](user/) |
 | Agent skills | [skills/](skills/) |
 | Staging outputs | `data/staging/`, `data/source_evidence/` |
 | Deterministic code | [src/](src/) (unchanged modules) |
+
+**Hermes orchestration (planned):** [Event-driven company pipeline PRD](docs/prd/event-driven-company-pipeline.md) — natural-language discovery, per-company staging, automatic merge, and evaluation triggers.
 
 **MVP workflow:** company discovery → Python merge → company fit evaluation → job discovery from website → Python merge → job fit evaluation → ranking.
 
@@ -283,6 +286,7 @@ Only the scaffold, configuration templates, and seed company inventory are track
 job-search-agent/
 ├── AGENTS.md         # Agent workflow router (v2)
 ├── DATA_CONTRACT.md  # Schemas, file ownership, merge rules
+├── docs/             # PRDs, ADRs (architecture decisions)
 ├── app/              # Streamlit dashboard entry point
 ├── config/           # settings.yaml, profile.yml, sources.yml, …
 ├── user/             # CV, career profile, proof points (human-owned)

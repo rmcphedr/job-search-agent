@@ -35,9 +35,14 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 | Path | Format | Schema |
 |------|--------|--------|
 | `data/staging/company_candidates_<run_id>.json` | JSON array | `CompanyCandidate` |
+| `data/staging/runs/<run_id>/company_candidates/<slug>.json` | JSON object | `CompanyCandidate` (preferred for event-driven merge) |
 | `data/staging/company_evaluations_<run_id>.json` | JSON array | `CompanyFitResult` |
+| `data/staging/runs/<run_id>/company_evaluations/<slug>.json` | JSON object | `CompanyFitResult` (preferred) |
+| `data/staging/runs/<run_id>/manifest.json` | JSON object | Run metadata and counts |
+| `data/staging/runs/<run_id>/calibration.json` | JSON object | `CalibrationFile` — user score corrections and preference themes |
 | `data/staging/job_candidates_<run_id>.json` | JSON array | `JobCandidate` |
 | `data/staging/job_evaluations_<run_id>.json` | JSON array | `JobFitResult` |
+| `data/events/event_log.jsonl` | JSONL | Orchestration events (Python write) |
 | `data/source_evidence/<run_id>/` | HTML, JSON, screenshots | Unstructured evidence |
 
 `<run_id>` = ISO timestamp or UUID assigned at workflow start (e.g. `20250627T143000Z`).
@@ -176,10 +181,11 @@ Validated by `src.llm.schemas.JobFitResult`.
 
 ```
 Agent output (staging JSON)
-    → Pydantic parse (src/schemas / src/validators)
+    → Pydantic parse (src/validators)
     → Dedup (src/discovery/deduplicate or src/jobs/save_jobs)
     → ID assignment / URL normalization (Python)
     → Write canonical CSV or SQLite
+    → Append data/events/event_log.jsonl
     → Append scan_history / runs log
     → Export reports/ if applicable
 ```

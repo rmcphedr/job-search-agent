@@ -3,6 +3,9 @@ project_name: job-search-agent
 paths:
   database: data/job_search.db
   company_inventory: data/company_inventory.csv
+  company_evaluations: data/company_evaluations.csv
+  staging: data/staging
+  events: data/events
   raw_pages: data/raw
   cache: data/cache
   outputs: outputs

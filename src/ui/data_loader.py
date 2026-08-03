@@ -15,6 +15,8 @@ import yaml
 from src.database.db import get_database_path, get_project_root
 from src.database.import_inventory import get_inventory_path
 from src.discovery.link_utils import clean_url
+from src.orchestration.calibration import get_effective_fit_score
+from src.orchestration.evaluation_store import load_company_evaluations
 from src.ui.status_utils import (
     CAREER_STATUS_FOUND,
     CAREER_STATUS_NOT_CHECKED,
@@ -233,6 +235,27 @@ def load_active_job_counts() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def load_company_evaluations_frame() -> pd.DataFrame:
+    """Load canonical company evaluations with effective_fit_score for ranking."""
+    frame = load_company_evaluations()
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    frame["effective_fit_score"] = frame.apply(get_effective_fit_score, axis=1)
+    return frame
+
+
+def get_company_evaluation(company_name: str) -> dict[str, object] | None:
+    evaluations = load_company_evaluations_frame()
+    if evaluations.empty:
+        return None
+    matches = evaluations[evaluations["company_name"].fillna("").str.lower() == company_name.strip().lower()]
+    if matches.empty:
+        return None
+    return matches.iloc[-1].to_dict()
+
+
+@st.cache_data(show_spinner=False)
 def load_run_history() -> pd.DataFrame:
     """Load recent pipeline runs."""
     empty = pd.DataFrame(
@@ -401,6 +424,7 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
 
     metadata = parse_company_notes(row.get("notes"))
     profile = _load_company_profile(row.get("company_id"))
+    evaluation = get_company_evaluation(company_name)
 
     detail = {
         "company_id": row.get("company_id", ""),
@@ -422,6 +446,7 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
         "notes": row.get("notes", ""),
         "company_summary": profile.get("company_summary") if profile else "",
         "metadata": metadata,
+        "evaluation": evaluation,
     }
     if profile:
         detail["metadata"]["company_summary"] = profile.get("company_summary") or metadata.get("company_summary")

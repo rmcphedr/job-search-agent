@@ -88,6 +88,25 @@ def render_company_detail_view(company_name: str | None = None) -> None:
             _render_if_present("Source URL", detail.get("source_url"))
         _render_if_present("Notes", metadata.get("raw_notes") or detail.get("notes"), full_width=True)
 
+    evaluation = detail.get("evaluation")
+    if evaluation:
+        st.subheader("Company Fit Evaluation")
+        fit_col1, fit_col2, fit_col3 = st.columns(3)
+        effective = evaluation.get("effective_fit_score", evaluation.get("fit_score"))
+        fit_col1.metric("Fit score", f"{effective:.1f}" if effective is not None and effective == effective else "—")
+        fit_col2.metric("Industry", _format_score(evaluation.get("industry_alignment")))
+        fit_col3.metric("Mission", _format_score(evaluation.get("mission_alignment")))
+        fit_col4, fit_col5, fit_col6 = st.columns(3)
+        fit_col4.metric("Career", _format_score(evaluation.get("career_alignment")))
+        fit_col5.metric("Growth", _format_score(evaluation.get("growth_potential")))
+        fit_col6.metric("Confidence", _format_score(evaluation.get("confidence")))
+        _render_if_present("Reasoning", evaluation.get("reasoning"), full_width=True)
+        _render_if_present("Best roles", evaluation.get("best_roles"))
+        _render_if_present("Interesting factors", evaluation.get("interesting_factors"))
+        _render_if_present("Red flags", evaluation.get("red_flags"))
+        if evaluation.get("calibration_feedback"):
+            _render_if_present("Your calibration", evaluation.get("calibration_feedback"), full_width=True)
+
     st.subheader("Jobs Found At Company")
     jobs = get_company_jobs(name)
     if jobs.empty:
@@ -136,6 +155,15 @@ def render_company_detail_view(company_name: str | None = None) -> None:
         st.button("Outreach Generation", disabled=True, help="Coming Soon", key=f"outreach_{name}")
     with future_col4:
         st.button("Application Tracking", disabled=True, help="Coming Soon", key=f"track_{name}")
+
+
+def _format_score(value: object) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _company_health(detail: dict[str, object]) -> tuple[str, str]:
