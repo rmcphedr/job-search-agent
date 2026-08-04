@@ -6,11 +6,19 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from contextlib import nullcontext
+
 from src.database.db import get_connection
 from src.database.migrate import apply_migrations
 from src.jobs.board_discovery.ats_enrich import enrich_ats_job_descriptions
-from src.jobs.board_discovery.config import BoardSource, get_enabled_boards, load_board_sources_config
+from src.jobs.board_discovery.config import (
+    BoardSource,
+    boards_need_playwright,
+    get_enabled_boards,
+    load_board_sources_config,
+)
 from src.jobs.board_discovery.http import BoardHttpClient, is_persistent_board_error
+from src.jobs.board_discovery.playwright_client import PlaywrightBrowserClient, playwright_available
 from src.jobs.board_discovery.registry import get_adapter
 from src.jobs.discovery_config import load_discovery_config
 from src.jobs.filter_jobs import filter_jobs
@@ -99,44 +107,54 @@ def run_board_discovery(
     max_ats_enrich = int(defaults.get("max_ats_enrichments", 10))
 
     boards = get_enabled_boards(config, board_ids=board_ids, phase=phase)
+    if boards_need_playwright(boards) and not playwright_available():
+        raise RuntimeError(
+            "One or more enabled boards require Playwright. "
+            "Install with: pip install playwright && playwright install chromium"
+        )
+
     run_id = _new_run_id()
     summary = BoardDiscoverySummary(run_id=run_id, dry_run=dry_run)
     client = BoardHttpClient(delay_ms=delay_ms)
     all_candidates: list[JobCandidate] = []
 
-    for board in boards:
-        stats = BoardRunStats(source_id=board.source_id)
-        adapter = get_adapter(board.adapter)
-        board_pages = board.max_pages_per_query or max_pages
+    browser_context = PlaywrightBrowserClient(delay_ms=delay_ms) if boards_need_playwright(boards) else nullcontext()
 
-        board_failed = False
-        query_list = search_queries[: discovery_config.budgets.max_search_queries]
-        if board.fetch_once and query_list:
-            query_list = query_list[:1]
+    with browser_context as browser:
+        for board in boards:
+            stats = BoardRunStats(source_id=board.source_id)
+            adapter = get_adapter(board.adapter, scrape_mode=board.scrape_mode)
+            board_pages = board.max_pages_per_query or max_pages
 
-        for query in query_list:
-            if board_failed:
-                break
-            stats.queries_run += 1
-            try:
-                found = adapter.search(
-                    query,
-                    location=resolved_location,
-                    source=board,
-                    client=client,
-                    max_pages=board_pages,
-                )
-            except Exception as exc:
-                stats.notes = f"error: {exc}"
-                logger.warning("Board %s query %r failed: %s", board.source_id, query, exc)
-                if is_persistent_board_error(exc):
-                    board_failed = True
-                continue
-            stats.raw_jobs += len(found)
-            all_candidates.extend(found)
+            board_failed = False
+            query_list = search_queries[: discovery_config.budgets.max_search_queries]
+            if board.fetch_once and query_list:
+                query_list = query_list[:1]
 
-        summary.board_stats.append(stats)
-        summary.boards_checked += 1
+            for query in query_list:
+                if board_failed:
+                    break
+                stats.queries_run += 1
+                try:
+                    found = adapter.search(
+                        query,
+                        location=resolved_location,
+                        source=board,
+                        client=client,
+                        max_pages=board_pages,
+                        browser=browser if board.scrape_mode == "playwright" else None,
+                    )
+                except Exception as exc:
+                    stats.notes = f"error: {exc}"
+                    logger.warning("Board %s query %r failed: %s", board.source_id, query, exc)
+                    if is_persistent_board_error(exc):
+                        board_failed = True
+                    continue
+                stats.raw_jobs += len(found)
+                all_candidates.extend(found)
+
+            summary.board_stats.append(stats)
+            summary.boards_checked += 1
 
     summary.raw_jobs_found = len(all_candidates)
     deduped = _dedupe_candidates(all_candidates)

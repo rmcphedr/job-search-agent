@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from src.jobs.board_discovery.config import BoardSource
 from src.jobs.board_discovery.http import BoardHttpClient
 from src.jobs.job_models import JobCandidate
+
+if TYPE_CHECKING:
+    from src.jobs.board_discovery.playwright_client import PlaywrightBrowserClient
 
 
 class BoardAdapter(Protocol):
@@ -20,11 +23,19 @@ class BoardAdapter(Protocol):
         source: BoardSource,
         client: BoardHttpClient,
         max_pages: int,
+        browser: PlaywrightBrowserClient | None = None,
     ) -> list[JobCandidate]:
         ...
 
 
-def get_adapter(adapter_name: str) -> BoardAdapter:
+def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAdapter:
+    if scrape_mode == "playwright":
+        from src.jobs.board_discovery.playwright_adapters import PLAYWRIGHT_ADAPTERS
+
+        playwright_adapter = PLAYWRIGHT_ADAPTERS.get(adapter_name)
+        if playwright_adapter is not None:
+            return playwright_adapter
+
     from src.jobs.board_discovery.adapters.bioinformatics_ca import BioinformaticsCaAdapter
     from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
     from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter

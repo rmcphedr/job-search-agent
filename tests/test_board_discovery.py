@@ -16,7 +16,7 @@ from src.jobs.board_discovery.adapters.jobbank import JobBankAdapter
 from src.jobs.board_discovery.adapters.life_sciences_bc import LifeSciencesBcAdapter
 from src.jobs.board_discovery.adapters.neurotechx import NeurotechXAdapter
 from src.jobs.board_discovery.ats_enrich import enrich_ats_job_descriptions
-from src.jobs.board_discovery.config import BoardSource, load_board_sources_config
+from src.jobs.board_discovery.config import BoardSource, boards_need_playwright, load_board_sources_config
 from src.jobs.board_discovery.listing_utils import matches_canada_location, matches_query
 from src.jobs.job_models import JobCandidate
 
@@ -74,14 +74,14 @@ def test_load_board_sources_config_has_essential_boards() -> None:
     config = load_board_sources_config()
     source_ids = {board.source_id for board in config.boards}
     enabled = {board.source_id for board in config.boards if board.enabled}
+    playwright_boards = {board.source_id for board in config.boards if board.scrape_mode == "playwright"}
     assert "jobbank" in source_ids
     assert "indeed_ca" in source_ids
     assert "linkedin" in source_ids
     assert "biospace" in source_ids
     assert "jobbank" in enabled
-    assert "indeed_ca" not in enabled
-    assert "life_sciences_bc" in enabled
-    assert "can_neurojobs" in enabled
+    assert "indeed_ca" in enabled
+    assert "indeed_ca" in playwright_boards
 
 
 def test_jobbank_adapter_parses_fixture() -> None:
@@ -203,6 +203,12 @@ def test_listing_utils_canada_and_query() -> None:
     assert matches_canada_location("Toronto, ON, Canada") is True
     assert matches_canada_location("Boston, MA") is False
     assert matches_query("Machine Learning Scientist", "machine learning") is True
+
+
+def test_boards_need_playwright_detects_phase3() -> None:
+    config = load_board_sources_config()
+    enabled = [board for board in config.boards if board.enabled]
+    assert boards_need_playwright(enabled) is True
 
 
 def test_ats_enrich_skips_non_ats_urls() -> None:

@@ -43,24 +43,27 @@ boards:
   # --- General Canada ---
   - source_id: linkedin
     name: LinkedIn Jobs
-    adapter: stub
+    adapter: linkedin
     priority: essential
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://www.linkedin.com/jobs
-    notes: "Requires Playwright session; login wall and anti-bot. Phase 3."
+    wait_selector: ".base-card, .jobs-search__results-list li"
+    notes: "Requires Playwright; may need login for full results."
 
   - source_id: indeed_ca
     name: Indeed Canada
     adapter: indeed_ca
     priority: essential
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://ca.indeed.com
     search_path: /jobs
     search_params:
       l: Canada
-    notes: "Returns 403 for automated requests; enable in phase 3 with Playwright."
+    wait_selector: ".job_seen_beacon, .jobsearch-ResultsList"
 
   - source_id: google_jobs
     name: Google Jobs
@@ -103,10 +106,10 @@ boards:
     adapter: eluta
     priority: high
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://www.eluta.ca
     search_path: /search
-    notes: "TLS handshake failure with Python requests on legacy Zope stack; phase 3."
 
   # --- Life sciences ---
   - source_id: biospace
@@ -180,9 +183,10 @@ boards:
     adapter: neurotech
     priority: essential
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://neurotechjobs.io
-    notes: "JS-rendered listings; requires Playwright in phase 3."
+    wait_selector: "a[href*='jobs'], h2, h3"
 
   - source_id: digital_health_canada
     name: Digital Health Canada Careers
@@ -235,10 +239,11 @@ boards:
     adapter: wellfound
     priority: essential
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://wellfound.com
     search_path: /jobs
-    notes: "Returns 403; phase 3 Playwright."
+    wait_selector: "[data-test='JobCard'], a[data-test='job-title']"
 
 # ATS providers — used when following board listing URLs to employer ATS pages.
 ats_providers:

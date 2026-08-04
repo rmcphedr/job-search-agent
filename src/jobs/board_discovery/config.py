@@ -29,6 +29,8 @@ class BoardSource:
     notes: str = ""
     max_pages_per_query: int | None = None
     fetch_once: bool = False
+    scrape_mode: str = "requests"
+    wait_selector: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,8 @@ def _parse_board(raw: dict[str, Any]) -> BoardSource:
         notes=str(raw.get("notes", "")),
         max_pages_per_query=raw.get("max_pages_per_query"),
         fetch_once=bool(raw.get("fetch_once", False)),
+        scrape_mode=str(raw.get("scrape_mode", "requests")),
+        wait_selector=raw.get("wait_selector"),
     )
 
 
@@ -100,6 +104,10 @@ def load_board_sources_config(config_path: Path | None = None) -> BoardSourcesCo
         boards=boards,
         ats_providers=[str(provider) for provider in ats_providers],
     )
+
+
+def boards_need_playwright(boards: list[BoardSource]) -> bool:
+    return any(board.scrape_mode == "playwright" for board in boards)
 
 
 def get_enabled_boards(

@@ -93,4 +93,10 @@ Jobs page shows 20 per page with filters for board, evaluation status, keywords.
 
 - [x] Life Sciences BC, CAN-ACN NeuroJobs, Health eCareers adapters
 - [x] ATS description enrichment for Greenhouse/Lever/Ashby/Workday/SmartRecruiters/iCIMS URLs
-- [ ] Playwright adapters for blocked boards (phase 3)
+
+## Acceptance criteria (phase 3)
+
+- [x] Playwright client + `scrape_mode: playwright` in board config
+- [x] Adapters for LinkedIn, Indeed CA, Eluta, Wellfound, neurotechjobs.io
+- [ ] Cookie/session support for boards that show CAPTCHA (Indeed, Wellfound)
+- [ ] PetriDish, SfN, HIMSS, AMIA when TLS/API access resolved

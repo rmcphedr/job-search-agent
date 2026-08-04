@@ -63,7 +63,14 @@ Do not bypass deduplication or edit `job_postings` directly.
 |-------|--------|
 | 1 (enabled) | Job Bank, BioSpace, Bioinformatics.ca, NeuroTechX |
 | 2 (enabled) | Life Sciences BC, CAN NeuroJobs, Health eCareers |
-| 3 (Playwright / TLS) | LinkedIn, Indeed, Eluta, Wellfound, PetriDish, SfN NeuroJobs, HIMSS, AMIA, Workopolis, neurotechjobs.io |
+| 3 (Playwright) | LinkedIn, Indeed CA, Eluta, Wellfound, neurotechjobs.io |
+
+Install Playwright before using phase 3 boards:
+
+```bash
+pip install playwright
+playwright install chromium
+```
 
 ## ATS follow-through
 

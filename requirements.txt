@@ -8,3 +8,4 @@ streamlit
 rapidfuzz
 plotly
 watchdog
+playwright>=1.40
