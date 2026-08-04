@@ -27,6 +27,7 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 | `config/scoring.yaml` | Keyword scoring weights | Legacy alias of scoring_weights |
 | `config/directory_sources.yaml` | Directory scrape definitions | Canonical for Python discovery |
 | `config/job_keywords.yaml` | Role/domain keyword filters | Used by job discovery CLI |
+| `config/job_board_sources.yaml` | Job board adapter catalog | Board discovery CLI |
 | `config/job_discovery.yaml` | Budgets, triage settings | Job pipeline |
 | `config/llm.yaml` | Ollama model settings | LLM scorer CLI |
 
@@ -158,6 +159,26 @@ Validated by `src.llm.schemas.CompanyFitResult`.
 ```
 
 Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jobs`.
+
+### SQLite `job_postings` row (canonical)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `job_id` | int | Auto |
+| `company_id` | int | FK → `companies`; auto-created for board discovery |
+| `title` | string | Required |
+| `location` | string | Optional |
+| `url` | string | Normalized |
+| `description` | string | Optional |
+| `date_found` | iso datetime | Default now |
+| `active` | bool/int | Default 1 |
+| `fit_score` | float | **Agent evaluation only** (NULL until evaluated) |
+| `fit_reason` | string | Agent evaluation summary |
+| `source_board` | string | e.g. `jobbank`, `indeed_ca` |
+| `discovery_run_id` | string | Board discovery run id |
+| `keyword_score` | float 0–1 | Prescreen from `filter_jobs` |
+| `matched_keywords` | JSON string | Keyword list |
+| `evaluated_at` | iso datetime | Set when agent fit merge completes |
 
 ### JobFitResult (job evaluation staging)
 

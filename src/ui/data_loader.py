@@ -51,6 +51,8 @@ JOBS_DISPLAY_COLUMNS = (
     "company_name",
     "title",
     "location",
+    "source_board",
+    "keyword_score",
     "fit_score",
     "fit_reason",
     "date_found",
@@ -65,15 +67,19 @@ SELECT
     c.company_id,
     j.title,
     j.location,
+    j.source_board,
+    j.keyword_score,
+    j.matched_keywords,
     j.fit_score,
     j.fit_reason,
+    j.evaluated_at,
     j.date_found,
     j.active,
     j.url,
     j.description
 FROM job_postings AS j
 INNER JOIN companies AS c ON j.company_id = c.company_id
-ORDER BY j.fit_score DESC, j.date_found DESC;
+ORDER BY j.fit_score IS NULL, j.fit_score DESC, j.keyword_score DESC, j.date_found DESC;
 """
 
 ACTIVE_JOBS_COUNT_QUERY = """
@@ -194,8 +200,12 @@ def load_jobs_from_db() -> pd.DataFrame:
     try:
         import sqlite3
 
+        from src.database.migrate import apply_migrations
+
         connection = sqlite3.connect(db_path)
         try:
+            apply_migrations(connection)
+            connection.commit()
             frame = pd.read_sql_query(JOBS_QUERY, connection)
         finally:
             connection.close()
@@ -204,9 +214,18 @@ def load_jobs_from_db() -> pd.DataFrame:
         return empty
 
     if not frame.empty:
-        parsed = frame["fit_reason"].map(parse_fit_reason)
-        frame["provider"] = parsed.map(lambda item: item.get("provider"))
-        frame["matched_keywords"] = parsed.map(lambda item: item.get("matched_keywords"))
+        if "matched_keywords" in frame.columns:
+            frame["matched_keywords"] = frame["matched_keywords"].fillna("")
+        if "fit_reason" in frame.columns:
+            parsed = frame["fit_reason"].map(parse_fit_reason)
+            if "provider" not in frame.columns:
+                frame["provider"] = parsed.map(lambda item: item.get("provider"))
+            legacy_keywords = parsed.map(lambda item: item.get("matched_keywords"))
+            if "matched_keywords" in frame.columns:
+                empty_mask = frame["matched_keywords"].fillna("").astype(str).str.strip() == ""
+                frame.loc[empty_mask, "matched_keywords"] = legacy_keywords[empty_mask]
+            else:
+                frame["matched_keywords"] = legacy_keywords
 
     return frame
 

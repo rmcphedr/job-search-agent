@@ -1,0 +1,250 @@
+# Canonical job board catalog for deterministic board discovery.
+# Python CLI: python -m src.jobs.run_board_discovery
+# Keywords: config/job_keywords.yaml | Roles: config/target_roles.yml
+
+defaults:
+  location: Canada
+  max_pages_per_query: 3
+  request_delay_ms: 1500
+  request_timeout_seconds: 15
+  min_keyword_score: 0.25
+  require_canada_location: true
+  max_ats_enrichments: 10
+
+# Domains treated as job boards (not employer websites) when deriving company website.
+job_board_domains:
+  - jobbank.gc.ca
+  - guichetemplois.gc.ca
+  - indeed.com
+  - ca.indeed.com
+  - glassdoor.ca
+  - glassdoor.com
+  - google.com
+  - linkedin.com
+  - workopolis.com
+  - eluta.ca
+  - talent.com
+  - biospace.com
+  - biotalent.ca
+  - bioinformatics.ca
+  - lifesciencesbc.ca
+  - neurotechjobs.io
+  - neurotechx.com
+  - jobs.neurotechx.com
+  - digitalhealthcanada.com
+  - healthcarecan.ca
+  - healthecareers.com
+  - jobmine.himss.org
+  - amia.org
+  - wellfound.com
+  - angel.co
+
+boards:
+  # --- General Canada ---
+  - source_id: linkedin
+    name: LinkedIn Jobs
+    adapter: stub
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://www.linkedin.com/jobs
+    notes: "Requires Playwright session; login wall and anti-bot. Phase 3."
+
+  - source_id: indeed_ca
+    name: Indeed Canada
+    adapter: indeed_ca
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://ca.indeed.com
+    search_path: /jobs
+    search_params:
+      l: Canada
+    notes: "Returns 403 for automated requests; enable in phase 3 with Playwright."
+
+  - source_id: google_jobs
+    name: Google Jobs
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.google.com/search
+    notes: "Aggregator; requires Playwright or SerpAPI. Phase 3."
+
+  - source_id: glassdoor
+    name: Glassdoor Canada
+    adapter: stub
+    priority: medium
+    phase: 3
+    enabled: false
+    base_url: https://www.glassdoor.ca
+    notes: "Anti-bot; phase 3 Playwright."
+
+  - source_id: jobbank
+    name: Job Bank Canada
+    adapter: jobbank
+    priority: high
+    phase: 1
+    enabled: true
+    base_url: https://www.jobbank.gc.ca
+    search_path: /jobsearch/jobsearch
+
+  - source_id: workopolis
+    name: Workopolis
+    adapter: stub
+    priority: medium
+    phase: 3
+    enabled: false
+    base_url: https://www.workopolis.com
+    notes: "Returns 403 for automated requests."
+
+  - source_id: eluta
+    name: Eluta
+    adapter: eluta
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.eluta.ca
+    search_path: /search
+    notes: "TLS handshake failure with Python requests on legacy Zope stack; phase 3."
+
+  # --- Life sciences ---
+  - source_id: biospace
+    name: BioSpace Jobs
+    adapter: biospace
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://jobs.biospace.com
+    search_path: /jobs/
+    search_params:
+      countries: Canada
+
+  - source_id: biotalent_petridish
+    name: BioTalent Canada – The PetriDish
+    adapter: stub
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://www.biotalent.ca
+    notes: "PetriDish host SSL errors; revisit with Playwright or alternate URL."
+
+  - source_id: bioinformatics_ca
+    name: Bioinformatics.ca Jobs
+    adapter: bioinformatics_ca
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://bioinformatics.ca
+    search_path: /jobs
+
+  - source_id: life_sciences_bc
+    name: Life Sciences BC Job Board
+    adapter: life_sciences_bc
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://lifesciencesbc.ca
+
+  # --- Neuro / health ---
+  - source_id: sfn_neurojobs
+    name: Society for Neuroscience NeuroJobs
+    adapter: stub
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://www.neurojobs.org
+    notes: "TLS/SSL instability from Python requests; phase 3 Playwright."
+
+  - source_id: can_neurojobs
+    name: Canadian Association for Neuroscience NeuroJobs
+    adapter: can_acn
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://can-acn.org
+
+  - source_id: neurotechx
+    name: NeuroTechX Jobs
+    adapter: neurotechx
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://neurotechx.com
+    search_path: /find-a-job/
+
+  - source_id: neurotech_jobs
+    name: Neurotech Jobs
+    adapter: neurotech
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://neurotechjobs.io
+    notes: "JS-rendered listings; requires Playwright in phase 3."
+
+  - source_id: digital_health_canada
+    name: Digital Health Canada Careers
+    adapter: stub
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://digitalhealthcanada.com
+    notes: "No public member job board; /careers lists DHC staff roles only."
+
+  - source_id: healthcarecan
+    name: HealthCareCAN Careers
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.healthcarecan.ca
+    notes: "Job board is informational hub without scrapeable external listings."
+
+  - source_id: healthecareers
+    name: Health eCareers
+    adapter: healthecareers
+    priority: medium
+    phase: 2
+    enabled: true
+    base_url: https://www.healthecareers.com
+    search_path: /search-jobs
+
+  - source_id: himss_jobmine
+    name: HIMSS JobMine
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://jobmine.himss.org
+    notes: "Returns 403 for automated requests."
+
+  - source_id: amia
+    name: AMIA Career Center
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.amia.org
+    notes: "careers.amia.org TLS certificate hostname mismatch."
+
+  # --- Startups ---
+  - source_id: wellfound
+    name: Wellfound
+    adapter: wellfound
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://wellfound.com
+    search_path: /jobs
+    notes: "Returns 403; phase 3 Playwright."
+
+# ATS providers — used when following board listing URLs to employer ATS pages.
+ats_providers:
+  - greenhouse
+  - lever
+  - ashby
+  - workday
+  - smartrecruiters
+  - icims

@@ -88,6 +88,19 @@ python -m src.jobs.run_job_discovery --limit 50
 
 Agents must **not** insert into SQLite directly.
 
+### Step 3b — Job discovery from boards (Canada)
+
+**Skill:** [skills/job_discovery_from_board/SKILL.md](skills/job_discovery_from_board/SKILL.md)
+
+Python scrapes configured job boards (`config/job_board_sources.yaml`) using keywords from `config/job_keywords.yaml`. Unknown employers are auto-inserted into SQLite `companies` (`hiring_status = board_discovered`) for later company discovery.
+
+```bash
+python -m src.jobs.run_board_discovery
+python -m src.jobs.run_board_discovery --boards jobbank,indeed_ca,biospace --dry-run
+```
+
+Jobs are saved with `source_board` set and `fit_score` NULL until agent evaluation (Step 4).
+
 ### Step 4 — Job fit evaluation
 
 **Skill:** [skills/job_fit_evaluation/SKILL.md](skills/job_fit_evaluation/SKILL.md)
@@ -115,7 +128,7 @@ Python aggregates scores and produces a shortlist. Agents may propose rank adjus
 | Skill | Purpose |
 |-------|---------|
 | [hermes_orchestrator/SKILL.md](skills/hermes_orchestrator/SKILL.md) | Event-driven discovery + evaluation orchestration |
-| [job_discovery_from_board/SKILL.md](skills/job_discovery_from_board/SKILL.md) | Board-specific discovery (LinkedIn, Indeed, etc.) |
+| [job_discovery_from_board/SKILL.md](skills/job_discovery_from_board/SKILL.md) | Board job discovery (Python CLI + staging) |
 | [resume_tailoring/SKILL.md](skills/resume_tailoring/SKILL.md) | Placeholder — not implemented |
 
 ## Python module map (preserve — do not delete)

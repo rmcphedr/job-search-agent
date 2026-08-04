@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS job_postings (
     active INTEGER DEFAULT 1,
     fit_score REAL,
     fit_reason TEXT,
+    source_board TEXT,
+    discovery_run_id TEXT,
+    keyword_score REAL,
+    matched_keywords TEXT,
+    evaluated_at TEXT,
     FOREIGN KEY (company_id) REFERENCES companies (company_id)
 );
 
