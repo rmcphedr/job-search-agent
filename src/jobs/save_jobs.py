@@ -186,8 +186,9 @@ def save_jobs(
                 if force_refresh:
                     connection.execute(
                         """
-                        UPDATE job_postings
-                        SET title = ?,
+                    UPDATE job_postings
+                        SET company_id = ?,
+                            title = ?,
                             location = ?,
                             url = ?,
                             description = ?,
@@ -201,6 +202,7 @@ def save_jobs(
                         WHERE job_id = ?;
                         """,
                         (
+                            company_id,
                             candidate.title,
                             candidate.location,
                             candidate.url,

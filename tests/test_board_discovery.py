@@ -9,6 +9,7 @@ from src.database.company_upsert import (
     placeholder_website,
     upsert_company_from_job,
 )
+from src.jobs.board_discovery.adapters.eluta import parse_eluta_listing
 from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
 from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter
 from src.jobs.board_discovery.adapters.healthecareers import HealthecareersAdapter
@@ -18,6 +19,8 @@ from src.jobs.board_discovery.adapters.neurotechx import NeurotechXAdapter
 from src.jobs.board_discovery.ats_enrich import enrich_ats_job_descriptions
 from src.jobs.board_discovery.config import BoardSource, boards_need_playwright, load_board_sources_config
 from src.jobs.board_discovery.listing_utils import matches_canada_location, matches_query
+from src.jobs.board_discovery.playwright_config import detect_blocked_page, resolve_board_playwright
+from src.jobs.board_discovery.playwright_adapters import PlaywrightLinkedInAdapter
 from src.jobs.job_models import JobCandidate
 
 
@@ -66,6 +69,29 @@ HEALTHECAREERS_FIXTURE = """
     <span>Machine Learning Scientist</span>
   </a>
   <div class="job-vendor">Health AI Labs</div>
+</div>
+"""
+
+ELUTA_FIXTURE = """
+<div id="organic-jobs">
+  <div data-url="spl/machine-learning-engineer-d288b11e87ad6764195d05697d6ac218?imo=12" class="organic-job odd">
+    <h2 class="title">
+      <a class="lk-job-title" data-url="spl/machine-learning-engineer-d288b11e87ad6764195d05697d6ac218?imo=12"
+         href="#!" title="Machine Learning Engineer">Machine Learning Engineer</a>
+    </h2>
+    <a class="employer lk-employer" href="#!">Sobeys Inc.</a>
+    <span class="location"><span>Toronto, ON</span></span>
+  </div>
+</div>
+"""
+
+LINKEDIN_FIXTURE = """
+<div class="base-card">
+  <a class="base-card__full-link" href="https://www.linkedin.com/jobs/view/123">
+    <h3 class="base-search-card__title">Data Scientist - AI/ML</h3>
+    <h4 class="base-search-card__subtitle">Scotiabank</h4>
+    <span class="job-search-card__location">Toronto, Ontario, Canada</span>
+  </a>
 </div>
 """
 
@@ -203,6 +229,68 @@ def test_listing_utils_canada_and_query() -> None:
     assert matches_canada_location("Toronto, ON, Canada") is True
     assert matches_canada_location("Boston, MA") is False
     assert matches_query("Machine Learning Scientist", "machine learning") is True
+
+
+def test_eluta_adapter_parses_fixture() -> None:
+    source = BoardSource(
+        source_id="eluta",
+        name="Eluta",
+        adapter="eluta",
+        base_url="https://www.eluta.ca",
+        search_path="/search",
+    )
+    results = parse_eluta_listing(
+        ELUTA_FIXTURE,
+        source=source,
+        search_url="https://www.eluta.ca/search?q=machine+learning",
+        base="https://www.eluta.ca",
+    )
+    assert len(results) == 1
+    assert results[0].title == "Machine Learning Engineer"
+    assert results[0].company_name == "Sobeys Inc."
+    assert results[0].location == "Toronto, ON"
+    assert "/spl/machine-learning-engineer" in (results[0].url or "")
+
+
+def test_linkedin_playwright_adapter_parses_fixture() -> None:
+    source = BoardSource(
+        source_id="linkedin",
+        name="LinkedIn Jobs",
+        adapter="linkedin",
+        base_url="https://www.linkedin.com/jobs",
+    )
+    adapter = PlaywrightLinkedInAdapter()
+    results = adapter._parse_listing(
+        LINKEDIN_FIXTURE,
+        source=source,
+        search_url="https://www.linkedin.com/jobs/search",
+    )
+    assert len(results) == 1
+    assert results[0].title == "Data Scientist - AI/ML"
+    assert results[0].company_name == "Scotiabank"
+
+
+def test_detect_blocked_page_datadome() -> None:
+    html = '<html><script src="https://geo.captcha-delivery.com/captcha"></script></html>'
+    assert detect_blocked_page(html) == "datadome_captcha"
+
+
+def test_resolve_board_playwright_overrides() -> None:
+    board = BoardSource(
+        source_id="linkedin",
+        name="LinkedIn",
+        adapter="linkedin",
+        base_url="https://www.linkedin.com/jobs",
+        wait_selector=".base-card",
+        search_params={
+            "playwright_wait_until": "domcontentloaded",
+            "playwright_extra_wait_ms": "2500",
+        },
+    )
+    resolved = resolve_board_playwright(board, {"wait_until": "load", "extra_wait_ms": 1000})
+    assert resolved["wait_until"] == "domcontentloaded"
+    assert resolved["extra_wait_ms"] == 2500
+    assert resolved["wait_selector"] == ".base-card"
 
 
 def test_boards_need_playwright_detects_phase3() -> None:

@@ -18,8 +18,10 @@ from src.ui.evaluations_view import render_evaluations_view
 from src.ui.jobs_view import render_jobs_view
 from src.ui.profile_view import render_profile_view
 from src.ui.session_utils import init_session_state, render_selection_sidebar, select_company, select_job
+from src.ui.tracking_view import render_tracking_view
 
 PAGES = {
+    "Tracking": render_tracking_view,
     "Companies": render_company_view,
     "Company Fit": render_evaluations_view,
     "Jobs": render_jobs_view,
@@ -89,6 +91,7 @@ def main() -> None:
 
     init_session_state()
     st.session_state.setdefault("global_search_results", None)
+    st.session_state.setdefault("main_navigation", "Tracking")
 
     st.sidebar.title("Job Search Agent")
     st.sidebar.caption("Company and job research control panel")

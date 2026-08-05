@@ -136,14 +136,15 @@ def run_board_discovery(
                     break
                 stats.queries_run += 1
                 try:
-                    found = adapter.search(
-                        query,
-                        location=resolved_location,
-                        source=board,
-                        client=client,
-                        max_pages=board_pages,
-                        browser=browser if board.scrape_mode == "playwright" else None,
-                    )
+                    search_kwargs: dict[str, object] = {
+                        "location": resolved_location,
+                        "source": board,
+                        "client": client,
+                        "max_pages": board_pages,
+                    }
+                    if board.scrape_mode == "playwright":
+                        search_kwargs["browser"] = browser
+                    found = adapter.search(query, **search_kwargs)
                 except Exception as exc:
                     stats.notes = f"error: {exc}"
                     logger.warning("Board %s query %r failed: %s", board.source_id, query, exc)

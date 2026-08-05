@@ -21,6 +21,7 @@ job_board_domains:
   - glassdoor.com
   - google.com
   - linkedin.com
+  - jobs.80000hours.org
   - workopolis.com
   - eluta.ca
   - talent.com
@@ -50,6 +51,9 @@ boards:
     scrape_mode: playwright
     base_url: https://www.linkedin.com/jobs
     wait_selector: ".base-card, .jobs-search__results-list li"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "2000"
     notes: "Requires Playwright; may need login for full results."
 
   - source_id: indeed_ca
@@ -63,7 +67,9 @@ boards:
     search_path: /jobs
     search_params:
       l: Canada
-    wait_selector: ".job_seen_beacon, .jobsearch-ResultsList"
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    wait_selector: ".job_seen_beacon, .jobsearch-ResultsList, h2.jobTitle"
 
   - source_id: google_jobs
     name: Google Jobs
@@ -110,6 +116,11 @@ boards:
     scrape_mode: playwright
     base_url: https://www.eluta.ca
     search_path: /search
+    search_params:
+      l: Toronto
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "4000"
+    wait_selector: "div.organic-job, a.lk-job-title"
 
   # --- Life sciences ---
   - source_id: biospace
@@ -187,6 +198,9 @@ boards:
     scrape_mode: playwright
     base_url: https://neurotechjobs.io
     wait_selector: "a[href*='jobs'], h2, h3"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "2000"
 
   - source_id: digital_health_canada
     name: Digital Health Canada Careers
@@ -244,6 +258,10 @@ boards:
     base_url: https://wellfound.com
     search_path: /jobs
     wait_selector: "[data-test='JobCard'], a[data-test='job-title']"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "5000"
+    notes: "Often blocked by DataDome CAPTCHA in headless mode."
 
 # ATS providers — used when following board listing URLs to employer ATS pages.
 ats_providers:

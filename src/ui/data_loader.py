@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from src.database.db import get_database_path, get_project_root
+from src.database.db import get_connection, get_database_path, get_project_root
 from src.database.import_inventory import get_inventory_path
 from src.discovery.link_utils import clean_url
 from src.orchestration.calibration import get_effective_fit_score
@@ -29,6 +29,14 @@ from src.ui.status_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
 
 COMPANY_TABLE_COLUMNS = (
     "company_name",
@@ -198,11 +206,9 @@ def load_jobs_from_db() -> pd.DataFrame:
         return empty
 
     try:
-        import sqlite3
-
         from src.database.migrate import apply_migrations
 
-        connection = sqlite3.connect(db_path)
+        connection = get_connection(db_path)
         try:
             apply_migrations(connection)
             connection.commit()
@@ -228,6 +234,45 @@ def load_jobs_from_db() -> pd.DataFrame:
                 frame["matched_keywords"] = legacy_keywords
 
     return frame
+
+
+SIDEBAR_JOBS_QUERY = """
+SELECT
+    j.job_id,
+    c.company_name,
+    j.title,
+    j.location,
+    j.fit_score,
+    j.active
+FROM job_postings AS j
+INNER JOIN companies AS c ON j.company_id = c.company_id
+WHERE j.active = 1
+ORDER BY j.fit_score IS NULL, j.fit_score DESC, j.date_found DESC
+LIMIT 50;
+"""
+
+
+@st.cache_data(show_spinner=False)
+def load_jobs_sidebar() -> pd.DataFrame:
+    """Load a compact job list for the tracking sidebar."""
+    empty = pd.DataFrame(columns=["job_id", "company_name", "title", "location", "fit_score", "active"])
+    db_path = get_database_path()
+    if not db_path.exists():
+        return empty
+
+    try:
+        from src.database.migrate import apply_migrations
+
+        connection = get_connection(db_path)
+        try:
+            apply_migrations(connection)
+            connection.commit()
+            return pd.read_sql_query(SIDEBAR_JOBS_QUERY, connection)
+        finally:
+            connection.close()
+    except Exception as exc:
+        logger.warning("Failed to load sidebar jobs from %s: %s", db_path, exc)
+        return empty
 
 
 @st.cache_data(show_spinner=False)

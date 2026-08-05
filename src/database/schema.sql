@@ -72,3 +72,17 @@ CREATE INDEX IF NOT EXISTS idx_company_pages_company_id ON company_pages (compan
 CREATE INDEX IF NOT EXISTS idx_company_profiles_company_id ON company_profiles (company_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_company_id ON job_postings (company_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_active ON job_postings (active);
+
+CREATE TABLE IF NOT EXISTS tracked_jobs (
+    tracked_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL UNIQUE,
+    stage TEXT NOT NULL DEFAULT 'tracked',
+    notes TEXT,
+    applied_at TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracked_jobs_stage ON tracked_jobs (stage);
+CREATE INDEX IF NOT EXISTS idx_tracked_jobs_job_id ON tracked_jobs (job_id);

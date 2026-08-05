@@ -16,6 +16,7 @@ KNOWN_TABLES = (
     "company_pages",
     "company_profiles",
     "job_postings",
+    "tracked_jobs",
     "runs",
 )
 

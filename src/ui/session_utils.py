@@ -12,6 +12,7 @@ def init_session_state() -> None:
     st.session_state.setdefault("show_job_detail", False)
     st.session_state.setdefault("global_search_query", "")
     st.session_state.setdefault("global_search_results", None)
+    st.session_state.setdefault("tracking_selected_job_id", None)
 
 
 def select_company(company_name: str) -> None:
@@ -23,6 +24,15 @@ def select_company(company_name: str) -> None:
 def select_job(job_id: int | str) -> None:
     st.session_state.selected_job_id = str(job_id)
     st.session_state.show_job_detail = True
+
+
+def select_tracking_job(job_id: int | str) -> None:
+    st.session_state.tracking_selected_job_id = str(job_id)
+    st.session_state.show_job_detail = False
+
+
+def navigate_to_tracking() -> None:
+    st.session_state.main_navigation = "Tracking"
 
 
 def clear_company_detail() -> None:

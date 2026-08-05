@@ -72,6 +72,23 @@ pip install playwright
 playwright install chromium
 ```
 
+### Sandbox probe (no DB writes)
+
+Verify Playwright boards before a full discovery run:
+
+```bash
+# All enabled phase-3 boards
+python -m src.jobs.board_discovery.playwright_sandbox --phase 3
+
+# Single board
+python -m src.jobs.board_discovery.playwright_sandbox --boards linkedin,eluta
+
+# JSON output for CI
+python -m src.jobs.board_discovery.playwright_sandbox --phase 3 --json
+```
+
+Per-board Playwright tuning lives in `config/job_board_sources.yaml` (`search_params.playwright_*`) and `config/settings.yaml` (`scraping.playwright`).
+
 ## ATS follow-through
 
 When listings link to Greenhouse, Lever, Ashby, Workday, SmartRecruiters, or iCIMS, Python career extractors in `src/jobs/job_extractors.py` can enrich descriptions on detail fetch (future enhancement).

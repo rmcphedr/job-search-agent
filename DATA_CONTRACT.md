@@ -180,6 +180,20 @@ Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jo
 | `matched_keywords` | JSON string | Keyword list |
 | `evaluated_at` | iso datetime | Set when agent fit merge completes |
 
+### SQLite `tracked_jobs` row (user workflow)
+
+User-owned application pipeline state. Python CRUD only (`src/database/tracked_jobs.py`); not written by agents.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `tracked_id` | int | Auto |
+| `job_id` | int | FK → `job_postings`, unique |
+| `stage` | string | `tracked`, `applying`, `applied`, `interviewing`, `accepted`, `rejected`, `withdrawn` |
+| `notes` | string | Optional free text |
+| `applied_at` | iso datetime | Set when stage becomes `applied` |
+| `created_at` | iso datetime | |
+| `updated_at` | iso datetime | |
+
 ### JobFitResult (job evaluation staging)
 
 ```json

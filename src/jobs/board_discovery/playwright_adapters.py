@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup
 
+from src.jobs.board_discovery.adapters.eluta import parse_eluta_listing
 from src.jobs.board_discovery.adapters.indeed_ca import IndeedCaAdapter
 from src.jobs.board_discovery.config import BoardSource
 from src.jobs.board_discovery.http import BoardHttpClient
@@ -46,11 +47,9 @@ class PlaywrightIndeedCaAdapter(IndeedCaAdapter):
                 "start": str(page_index * 10),
             }
             search_url = f"{base}{search_path}"
-            result = pw.get_page_html(
-                search_url,
-                params=params,
-                wait_selector=source.wait_selector or ".job_seen_beacon, .jobsearch-ResultsList",
-            )
+            result = pw.get_page_html_for_board(search_url, params=params, board=source)
+            if result.blocked_reason:
+                break
             page_candidates = self._parse_listing(
                 result.html,
                 source=source,
@@ -81,39 +80,24 @@ class PlaywrightElutaAdapter:
         candidates: list[JobCandidate] = []
         base = source.base_url.rstrip("/")
         search_path = source.search_path or "/search"
+        resolved_location = source.search_params.get("l", location)
 
         for page in range(1, max_pages + 1):
-            params = {"q": query, "l": location, "page": str(page)}
+            params = {"q": query, "l": resolved_location, "page": str(page)}
             search_url = f"{base}{search_path}"
-            result = pw.get_page_html(search_url, params=params, wait_selector=source.wait_selector)
-            page_candidates = self._parse_listing(result.html, source=source, search_url=result.final_url, base=base)
+            result = pw.get_page_html_for_board(search_url, params=params, board=source)
+            if result.blocked_reason:
+                break
+            page_candidates = parse_eluta_listing(
+                result.html,
+                source=source,
+                search_url=result.final_url,
+                base=base,
+            )
             if not page_candidates:
                 break
             candidates.extend(page_candidates)
         return candidates
-
-    def _parse_listing(self, html: str, *, source: BoardSource, search_url: str, base: str) -> list[JobCandidate]:
-        soup = BeautifulSoup(html, "html.parser")
-        results: list[JobCandidate] = []
-        for row in soup.select("div.job, tr.job, article.job, .result, li.result"):
-            title_el = row.select_one("a.title, h2 a, h3 a, .job-title a, a[href*='job']")
-            company_el = row.select_one(".company, .employer, .org")
-            location_el = row.select_one(".location, .city")
-            title = title_el.get_text(" ", strip=True) if title_el else None
-            company = company_el.get_text(" ", strip=True) if company_el else "Unknown employer"
-            location_text = location_el.get_text(" ", strip=True) if location_el else None
-            url = absolute_url(base, title_el.get("href") if title_el else None)
-            candidate = build_candidate(
-                source=source,
-                company_name=company,
-                title=title or "",
-                location=location_text,
-                url=url,
-                search_url=search_url,
-            )
-            if candidate is not None:
-                results.append(candidate)
-        return results
 
 
 class PlaywrightWellfoundAdapter:
@@ -129,17 +113,15 @@ class PlaywrightWellfoundAdapter:
         max_pages: int,
         browser: PlaywrightBrowserClient | None = None,
     ) -> list[JobCandidate]:
-        del client
+        del client, max_pages
         pw = _require_browser(browser)
         base = source.base_url.rstrip("/")
         search_path = source.search_path or "/jobs"
-        params = {"query": query, "location": location}
+        params = {"query": query, "location": source.search_params.get("location", location)}
         search_url = f"{base}{search_path}"
-        result = pw.get_page_html(
-            search_url,
-            params=params,
-            wait_selector=source.wait_selector or "[data-test='JobCard'], a[data-test='job-title']",
-        )
+        result = pw.get_page_html_for_board(search_url, params=params, board=source)
+        if result.blocked_reason:
+            return []
         return self._parse_listing(result.html, source=source, search_url=result.final_url, base=base)
 
     def _parse_listing(self, html: str, *, source: BoardSource, search_url: str, base: str) -> list[JobCandidate]:
@@ -184,7 +166,9 @@ class PlaywrightNeurotechAdapter:
         del client, max_pages, location
         pw = _require_browser(browser)
         base = source.base_url.rstrip("/")
-        result = pw.get_page_html(base, wait_selector=source.wait_selector or "a[href*='job'], .job-card")
+        result = pw.get_page_html_for_board(base, params=None, board=source)
+        if result.blocked_reason:
+            return []
         return self._parse_listing(result.html, source=source, search_url=result.final_url, base=base, query=query)
 
     def _parse_listing(
@@ -239,19 +223,18 @@ class PlaywrightLinkedInAdapter:
         pw = _require_browser(browser)
         candidates: list[JobCandidate] = []
         base = source.base_url.rstrip("/")
+        resolved_location = source.search_params.get("location", location)
 
         for page in range(max_pages):
             params = {
                 "keywords": query,
-                "location": location,
+                "location": resolved_location,
                 "start": str(page * 25),
             }
             search_url = f"{base}/search"
-            result = pw.get_page_html(
-                search_url,
-                params=params,
-                wait_selector=source.wait_selector or ".base-card, .jobs-search__results-list li",
-            )
+            result = pw.get_page_html_for_board(search_url, params=params, board=source)
+            if result.blocked_reason:
+                break
             page_candidates = self._parse_listing(result.html, source=source, search_url=result.final_url)
             if not page_candidates:
                 break

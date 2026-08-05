@@ -20,4 +20,11 @@ scraping:
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
   accept_language: "en-CA,en;q=0.9"
   playwright_headless: true
-  playwright_timeout_ms: 30000
+  playwright_timeout_ms: 45000
+  playwright:
+    headless: true
+    timeout_ms: 45000
+    wait_until: domcontentloaded
+    extra_wait_ms: 2000
+    viewport_width: 1280
+    viewport_height: 900

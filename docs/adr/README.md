@@ -55,6 +55,7 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-008](ADR-008-hermes-event-driven-orchestration.md) | Hermes event-driven orchestration for discovery + evaluation | Accepted |
 | [ADR-009](ADR-009-calibration-persistence.md) | Calibration persistence and preference learning | Accepted |
 | [ADR-010](ADR-010-board-job-discovery.md) | Deterministic board job discovery with company auto-upsert | Accepted |
+| [ADR-011](ADR-011-job-application-tracking.md) | Job application tracking in SQLite | Accepted |
 
 ## Related documents
 
