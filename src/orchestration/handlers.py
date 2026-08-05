@@ -14,7 +14,7 @@ import pandas as pd
 from src.database.db import get_connection
 from src.discovery.models import CompanyCandidate
 from src.discovery.update_inventory import get_inventory_path, update_inventory
-from src.llm.schemas import CompanyFitResult
+from src.llm.schemas import CompanyFitResult, JobFitResult
 from src.orchestration.evaluation_store import has_company_evaluation, upsert_company_evaluation
 from src.orchestration.events import emit_event
 from src.orchestration.manifest import (
@@ -36,6 +36,8 @@ class MergeResult:
     action: str
     company_name: str | None = None
     company_id: int | None = None
+    job_id: int | None = None
+    records_merged: int | None = None
     run_id: str | None = None
     errors: list[str] | None = None
     event_emitted: str | None = None
@@ -47,6 +49,8 @@ class MergeResult:
             "action": self.action,
             "company_name": self.company_name,
             "company_id": self.company_id,
+            "job_id": self.job_id,
+            "records_merged": self.records_merged,
             "run_id": self.run_id,
             "errors": self.errors,
             "event_emitted": self.event_emitted,
@@ -328,6 +332,100 @@ def merge_company_evaluation_file(
     )
 
 
+def merge_job_evaluation_file(path: Path, *, emit_events: bool = True) -> MergeResult:
+    """Validate job evaluations and atomically merge them into SQLite by job_id."""
+    run_id = infer_run_id_from_path(path)
+    records, errors = load_staging_records(path, JobFitResult)
+    if errors or not records:
+        return MergeResult(
+            success=False,
+            action="reject",
+            run_id=run_id,
+            errors=errors or ["No valid JobFitResult records"],
+        )
+
+    missing_ids = [record.job_title for record in records if record.job_id is None]
+    if missing_ids:
+        return MergeResult(
+            success=False,
+            action="reject",
+            run_id=run_id,
+            errors=[f"job_id is required for SQLite merge: {title}" for title in missing_ids],
+        )
+
+    connection = get_connection()
+    try:
+        for record in records:
+            row = connection.execute(
+                """
+                SELECT j.title, c.company_name
+                FROM job_postings AS j
+                JOIN companies AS c ON c.company_id = j.company_id
+                WHERE j.job_id = ? AND j.active = 1;
+                """,
+                (record.job_id,),
+            ).fetchone()
+            if row is None:
+                errors.append(f"Active job not found: job_id={record.job_id}")
+                continue
+            if row["title"].strip() != record.job_title.strip():
+                errors.append(
+                    f"job_id={record.job_id} title mismatch: database={row['title']!r}, evaluation={record.job_title!r}"
+                )
+            if row["company_name"].strip() != record.company_name.strip():
+                errors.append(
+                    f"job_id={record.job_id} company mismatch: database={row['company_name']!r}, evaluation={record.company_name!r}"
+                )
+
+        if errors:
+            return MergeResult(success=False, action="reject", run_id=run_id, errors=errors)
+
+        for record in records:
+            connection.execute(
+                """
+                UPDATE job_postings
+                SET fit_score = ?, fit_reason = ?, evaluated_at = datetime('now')
+                WHERE job_id = ?;
+                """,
+                (record.fit_score, record.why_fit, record.job_id),
+            )
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    if emit_events:
+        for record in records:
+            emit_event(
+                "job.evaluation.merged",
+                run_id=run_id,
+                payload={
+                    "job_id": record.job_id,
+                    "job_title": record.job_title,
+                    "company_name": record.company_name,
+                    "fit_score": record.fit_score,
+                    "staging_path": str(path),
+                },
+            )
+        _record_sqlite_run(
+            "staging_merge_job_evaluations",
+            {
+                "jobs_checked": len(records),
+                "job_ids": [record.job_id for record in records],
+                "run_id": run_id,
+            },
+        )
+
+    return MergeResult(
+        success=True,
+        action="merge",
+        run_id=run_id,
+        records_merged=len(records),
+    )
+
+
 def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResult:
     """Route a staging file to the correct merge handler based on path/schema."""
     path = path.resolve()
@@ -339,6 +437,8 @@ def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResul
         return merge_company_candidate_file(path)
     if parent == "company_evaluations" or path.stem.lower().startswith("company_evaluations"):
         return merge_company_evaluation_file(path, force_re_eval=force_re_eval)
+    if parent == "job_evaluations" or path.stem.lower().startswith("job_evaluations"):
+        return merge_job_evaluation_file(path)
 
     records, errors = load_staging_records(path)
     if errors:
@@ -351,6 +451,8 @@ def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResul
         return merge_company_candidate_file(path)
     if isinstance(first, CompanyFitResult):
         return merge_company_evaluation_file(path, force_re_eval=force_re_eval)
+    if isinstance(first, JobFitResult):
+        return merge_job_evaluation_file(path)
 
     return MergeResult(success=False, action="reject", errors=[f"Unsupported staging file: {path}"])
 

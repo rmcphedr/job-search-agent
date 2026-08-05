@@ -9,6 +9,7 @@ from typing import Any
 
 from src.database.db import get_project_root, load_settings
 from src.llm.llm_client import load_llm_config
+from src.profile.master_profile import master_profile_hash
 
 
 def get_cache_dir() -> Path:
@@ -47,6 +48,7 @@ def company_cache_key(company_record: dict[str, object]) -> str:
             _normalize(company_record.get("company_name")),
             _normalize(company_record.get("industry")),
             description,
+            master_profile_hash(),
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
@@ -59,6 +61,7 @@ def job_cache_key(job_record: dict[str, object]) -> str:
             _normalize(job_record.get("title") or job_record.get("job_title")),
             _normalize(job_record.get("company") or job_record.get("company_name")),
             _normalize(job_record.get("description")),
+            master_profile_hash(),
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

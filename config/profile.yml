@@ -1,6 +1,6 @@
 # Agent-facing profile index. Canonical narrative lives in user/*.md
 
-profile_version: 1
+profile_version: 2
 
 files:
   master_cv: user/master_cv.md
@@ -8,6 +8,15 @@ files:
   proof_points: user/proof_points.md
   project_inventory: user/project_inventory.md
   voice_style: user/voice_style.md
+
+# user/master_cv.md is generated. Run `python3 -m src.profile.master_profile`
+# after changing the canonical file in resume-generation-pipeline.
+master_profile_sync:
+  source_path: ../resume-generation-pipeline/personal/master-profile.md
+  destination_path: user/master_cv.md
+  ownership: generated_do_not_edit
+  hash_algorithm: sha256
+  stale_check: python3 -m src.profile.master_profile --check
 
 evaluation:
   target_roles_config: config/target_roles.yml
@@ -17,10 +26,17 @@ evaluation:
 preferences:
   locations:
     - Montreal
-    - Toronto
     - Vancouver
-    - Canada
+    - Other Canadian locations
+    - Remote with Canadian hiring support
+    - Remote with US employers supporting Canadian arrangements
+  work_arrangements:
     - Remote
+    - Hybrid
+    - On-site in Montreal
+  mobility: Willing to relocate
+  work_authorization: Canada
+  earliest_start_date: 2026-10
   industries:
     - AI
     - healthcare

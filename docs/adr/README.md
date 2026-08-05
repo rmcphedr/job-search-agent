@@ -56,6 +56,8 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-009](ADR-009-calibration-persistence.md) | Calibration persistence and preference learning | Accepted |
 | [ADR-010](ADR-010-board-job-discovery.md) | Deterministic board job discovery with company auto-upsert | Accepted |
 | [ADR-011](ADR-011-job-application-tracking.md) | Job application tracking in SQLite | Accepted |
+| [ADR-012](ADR-012-synchronized-master-profile.md) | Synchronized master career profile | Accepted |
+| [ADR-013](ADR-013-job-evaluation-sqlite-merge.md) | Job evaluation SQLite merge | Accepted |
 
 ## Related documents
 

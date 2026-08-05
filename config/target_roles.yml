@@ -2,14 +2,21 @@
 # Python CLI also reads config/scoring.yaml and config/job_keywords.yaml.
 
 target_roles:
+  - applied research scientist
+  - applied scientist
   - machine learning scientist
   - machine learning engineer
+  - AI engineer
   - AI scientist
   - research scientist
+  - research engineer
   - data scientist
+  - senior data scientist
   - bioinformatician
   - computational biologist
+  - computational neuroscientist
   - scientific consultant
+  - behavioral data consultant
 
 seniority:
   level: postdoc_to_industry

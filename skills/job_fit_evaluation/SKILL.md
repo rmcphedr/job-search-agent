@@ -9,6 +9,7 @@ Evaluate how well each job posting matches the candidate.
 
 ## Read first
 
+- [user/master_cv.md](../../user/master_cv.md) — generated canonical profile copy; never edit manually
 - [user/career_profile.md](../../user/career_profile.md)
 - [user/proof_points.md](../../user/proof_points.md)
 - [user/project_inventory.md](../../user/project_inventory.md)
@@ -22,6 +23,8 @@ Evaluate how well each job posting matches the candidate.
 2. Compare required/preferred skills to profile and proof points.
 3. Score fit, list skill matches/gaps, concerns, recommended actions.
 4. Write staging JSON and optional markdown report.
+
+Before scoring, run `python3 -m src.profile.master_profile --check`. If stale, warn and synchronize. Classify every material requirement as **confirmed evidence**, **transferable evidence**, **active development area**, **genuine gap**, or **unverified claim**. Unverified claims must not affect scoring, and active development areas must not be presented as established experience.
 
 ## Internal dimensions (inform `fit_score`)
 
@@ -37,6 +40,7 @@ Evaluate how well each job posting matches the candidate.
 ```json
 [
   {
+    "job_id": 123,
     "job_title": "Machine Learning Scientist",
     "company_name": "Acme Health AI",
     "fit_score": 8.0,
@@ -52,11 +56,14 @@ Evaluate how well each job posting matches the candidate.
 
 Schema: `JobFitResult`. JSON only in staging files.
 
+Include `job_id` for SQLite-backed jobs. The deterministic merger verifies it against the job title and company before updating the database.
+
 Optional: `reports/job_fit/<job_slug>_<timestamp>.md`
 
 ## Python merge
 
 ```bash
+python3 -m src.validators.merge --file data/staging/job_evaluations_<run_id>.json
 python -m src.llm.score_jobs --limit 10
 python -m src.llm.score_jobs --company "Valence Labs"
 ```

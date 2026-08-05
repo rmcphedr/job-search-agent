@@ -39,6 +39,7 @@ def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAda
     from src.jobs.board_discovery.adapters.bioinformatics_ca import BioinformaticsCaAdapter
     from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
     from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter
+    from src.jobs.board_discovery.adapters.digital_health_canada import DigitalHealthCanadaAdapter
     from src.jobs.board_discovery.adapters.eluta import ElutaAdapter
     from src.jobs.board_discovery.adapters.healthecareers import HealthecareersAdapter
     from src.jobs.board_discovery.adapters.html_list import HtmlListAdapter
@@ -47,6 +48,7 @@ def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAda
     from src.jobs.board_discovery.adapters.life_sciences_bc import LifeSciencesBcAdapter
     from src.jobs.board_discovery.adapters.neurotech import NeurotechAdapter
     from src.jobs.board_discovery.adapters.neurotechx import NeurotechXAdapter
+    from src.jobs.board_discovery.adapters.petridish import PetridishAdapter
     from src.jobs.board_discovery.adapters.stub import StubAdapter
     from src.jobs.board_discovery.adapters.wellfound import WellfoundAdapter
 
@@ -58,6 +60,8 @@ def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAda
         "bioinformatics_ca": BioinformaticsCaAdapter(),
         "life_sciences_bc": LifeSciencesBcAdapter(),
         "can_acn": CanAcnAdapter(),
+        "petridish": PetridishAdapter(),
+        "digital_health_canada": DigitalHealthCanadaAdapter(),
         "healthecareers": HealthecareersAdapter(),
         "neurotech": NeurotechAdapter(),
         "neurotechx": NeurotechXAdapter(),

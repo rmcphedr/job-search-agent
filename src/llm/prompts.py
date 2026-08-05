@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from src.database.db import get_project_root
+from src.profile.master_profile import load_master_profile
 
 PROMPTS_DIR = get_project_root() / "prompts"
 COMPANY_FIT_TEMPLATE_PATH = PROMPTS_DIR / "company_fit.md"
@@ -54,6 +55,7 @@ def build_company_fit_prompt(company_record: dict[str, object]) -> str:
     template = _load_template(COMPANY_FIT_TEMPLATE_PATH)
 
     return template.format(
+        candidate_profile=load_master_profile(),
         company_name=_normalize_field(company_record.get("company_name")),
         industry=_normalize_field(company_record.get("industry")),
         website=_normalize_field(company_record.get("website")),
@@ -69,6 +71,7 @@ def build_job_fit_prompt(job_record: dict[str, object], *, company_context: dict
     template = _load_template(JOB_FIT_TEMPLATE_PATH)
 
     return template.format(
+        candidate_profile=load_master_profile(),
         job_title=_normalize_field(job_record.get("title") or job_record.get("job_title")),
         company_name=_normalize_field(job_record.get("company") or job_record.get("company_name")),
         location=_normalize_field(job_record.get("location")),

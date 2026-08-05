@@ -8,7 +8,7 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 
 | Path | Purpose |
 |------|---------|
-| `user/master_cv.md` | Full CV / resume source |
+| `user/master_cv.md` | Generated local copy of the canonical master profile; sync with `python3 -m src.profile.master_profile`, never edit manually |
 | `user/career_profile.md` | Summary background, domains, seniority |
 | `user/proof_points.md` | Quantified achievements and evidence |
 | `user/project_inventory.md` | Portfolio projects with tech stack |
@@ -198,6 +198,7 @@ User-owned application pipeline state. Python CRUD only (`src/database/tracked_j
 
 ```json
 {
+  "job_id": 123,
   "job_title": "Machine Learning Scientist",
   "company_name": "Example Bio Inc",
   "fit_score": 8.0,
@@ -211,6 +212,8 @@ User-owned application pipeline state. Python CRUD only (`src/database/tracked_j
 ```
 
 Validated by `src.llm.schemas.JobFitResult`.
+
+`job_id` is optional for legacy score exports but required when merging an agent evaluation into SQLite. The merger verifies that the ID, title, and company all match before atomically updating the batch.
 
 ## Validation and merge flow
 

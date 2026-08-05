@@ -9,6 +9,7 @@ Score how well each company matches the candidate profile.
 
 ## Read first
 
+- [user/master_cv.md](../../user/master_cv.md) — generated canonical profile copy; never edit manually
 - [user/career_profile.md](../../user/career_profile.md)
 - [user/proof_points.md](../../user/proof_points.md)
 - [config/target_roles.yml](../../config/target_roles.yml)
@@ -88,6 +89,8 @@ Validated results export to `data/company_evaluations.csv` (canonical) and `outp
 
 ## Rules
 
+- Run `python3 -m src.profile.master_profile --check` before evaluating. If stale, warn and synchronize before scoring.
+- Classify candidate evidence as **confirmed evidence**, **transferable evidence**, **active development area**, **genuine gap**, or **unverified claim**. Unverified claims must not increase any score. Active development areas must not be represented as established experience.
 - Do not modify `data/company_inventory.csv`.
 - Use evidence from `data/source_evidence/` when available.
 - Flag low confidence when website/description is sparse.

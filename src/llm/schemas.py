@@ -41,6 +41,7 @@ class CompanyFitResult(BaseModel):
 
 
 class JobFitResult(BaseModel):
+    job_id: int | None = None
     job_title: str
     company_name: str
     fit_score: float = Field(ge=0, le=10)

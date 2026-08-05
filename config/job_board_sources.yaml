@@ -136,12 +136,13 @@ boards:
 
   - source_id: biotalent_petridish
     name: BioTalent Canada – The PetriDish
-    adapter: stub
+    adapter: petridish
     priority: essential
-    phase: 3
-    enabled: false
+    phase: 2
+    enabled: true
     base_url: https://www.biotalent.ca
-    notes: "PetriDish host SSL errors; revisit with Playwright or alternate URL."
+    search_path: /the-petridish/
+    notes: "Canadian bilingual biotech jobs at biotalent.ca/the-petridish/"
 
   - source_id: bioinformatics_ca
     name: Bioinformatics.ca Jobs
@@ -204,12 +205,14 @@ boards:
 
   - source_id: digital_health_canada
     name: Digital Health Canada Careers
-    adapter: stub
+    adapter: digital_health_canada
     priority: essential
-    phase: 3
-    enabled: false
+    phase: 2
+    enabled: true
+    fetch_once: true
     base_url: https://digitalhealthcanada.com
-    notes: "No public member job board; /careers lists DHC staff roles only."
+    search_path: /careers/
+    notes: "Member + DHC staff roles listed at digitalhealthcanada.com/careers/"
 
   - source_id: healthcarecan
     name: HealthCareCAN Careers

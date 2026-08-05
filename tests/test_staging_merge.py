@@ -15,7 +15,11 @@ from src.orchestration.evaluation_store import (
     upsert_company_evaluation,
 )
 from src.orchestration.events import emit_event, read_events_since
-from src.orchestration.handlers import merge_company_candidate_file, merge_company_evaluation_file
+from src.orchestration.handlers import (
+    merge_company_candidate_file,
+    merge_company_evaluation_file,
+    merge_job_evaluation_file,
+)
 from src.orchestration.manifest import create_run_manifest, load_manifest
 from src.llm.schemas import CompanyFitResult
 from src.validators import load_staging_records
@@ -223,3 +227,105 @@ def test_merge_evaluation_with_force_re_eval(temp_project):
     frame = pd.read_csv(company_evaluations_path())
     row = frame[frame["company_name"] == "Refresh Co"].iloc[-1]
     assert float(row["fit_score"]) == 8.5
+
+
+def test_merge_job_evaluation_updates_sqlite(temp_project):
+    from src.database.db import get_connection
+
+    connection = get_connection()
+    connection.executescript(
+        """
+        CREATE TABLE companies (company_id INTEGER PRIMARY KEY, company_name TEXT NOT NULL);
+        CREATE TABLE job_postings (
+            job_id INTEGER PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            fit_score REAL,
+            fit_reason TEXT,
+            evaluated_at TEXT
+        );
+        INSERT INTO companies (company_id, company_name) VALUES (1, 'Acme Health AI');
+        INSERT INTO job_postings (job_id, company_id, title) VALUES (42, 1, 'ML Scientist');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    path = temp_project / "data" / "staging" / "job_evaluations_test.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "job_id": 42,
+                    "job_title": "ML Scientist",
+                    "company_name": "Acme Health AI",
+                    "fit_score": 8.2,
+                    "skills_match": ["Python"],
+                    "skill_gaps": [],
+                    "recommended_actions": [],
+                    "why_fit": "Strong healthcare ML alignment.",
+                    "concerns": [],
+                    "confidence": 8.0,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = merge_job_evaluation_file(path, emit_events=False)
+
+    assert result.success
+    assert result.records_merged == 1
+    connection = get_connection()
+    row = connection.execute(
+        "SELECT fit_score, fit_reason, evaluated_at FROM job_postings WHERE job_id = 42"
+    ).fetchone()
+    connection.close()
+    assert row["fit_score"] == 8.2
+    assert row["fit_reason"] == "Strong healthcare ML alignment."
+    assert row["evaluated_at"] is not None
+
+
+def test_merge_job_evaluation_rejects_identity_mismatch(temp_project):
+    from src.database.db import get_connection
+
+    connection = get_connection()
+    connection.executescript(
+        """
+        CREATE TABLE companies (company_id INTEGER PRIMARY KEY, company_name TEXT NOT NULL);
+        CREATE TABLE job_postings (
+            job_id INTEGER PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            active INTEGER DEFAULT 1,
+            fit_score REAL,
+            fit_reason TEXT,
+            evaluated_at TEXT
+        );
+        INSERT INTO companies (company_id, company_name) VALUES (1, 'Acme Health AI');
+        INSERT INTO job_postings (job_id, company_id, title) VALUES (42, 1, 'ML Scientist');
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    path = temp_project / "data" / "staging" / "job_evaluations_bad.json"
+    path.write_text(
+        json.dumps(
+            [{
+                "job_id": 42,
+                "job_title": "Different title",
+                "company_name": "Acme Health AI",
+                "fit_score": 5.0,
+                "why_fit": "Mismatch test.",
+                "confidence": 5.0,
+            }]
+        ),
+        encoding="utf-8",
+    )
+
+    result = merge_job_evaluation_file(path, emit_events=False)
+
+    assert not result.success
+    assert "title mismatch" in result.errors[0]

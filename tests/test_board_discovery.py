@@ -10,6 +10,8 @@ from src.database.company_upsert import (
     upsert_company_from_job,
 )
 from src.jobs.board_discovery.adapters.eluta import parse_eluta_listing
+from src.jobs.board_discovery.adapters.digital_health_canada import parse_digital_health_canada_listing
+from src.jobs.board_discovery.adapters.petridish import parse_petridish_listing
 from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
 from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter
 from src.jobs.board_discovery.adapters.healthecareers import HealthecareersAdapter
@@ -95,6 +97,30 @@ LINKEDIN_FIXTURE = """
 </div>
 """
 
+PETRIDISH_FIXTURE = """
+<article class="listing-entry content-info-card post-25986 type-bio_job_posting">
+  <div class="content-info-card-container">
+    <div class="info-card-text-content">
+      <span class="content-info-card-container-subheader">Toronto, ON</span>
+      <h3 class="content-info-card-container-title">
+        <a href="https://www.biotalent.ca/the-petridish/software-engineer-12345/">
+          Software Engineer - Sanofi
+        </a>
+      </h3>
+    </div>
+  </div>
+</article>
+"""
+
+DHC_FIXTURE = """
+<div class="job-content">
+  <h4><a href="https://digitalhealthcanada.com/jobs/assistant-professor-health-informatics/">
+    Assistant Professor – Health Informatics
+  </a>, University of Toronto</h4>
+  <div class="meta">University of Toronto St. George Campus (Downtown Toronto), Full-Time</div>
+</div>
+"""
+
 
 def test_load_board_sources_config_has_essential_boards() -> None:
     config = load_board_sources_config()
@@ -107,6 +133,8 @@ def test_load_board_sources_config_has_essential_boards() -> None:
     assert "biospace" in source_ids
     assert "jobbank" in enabled
     assert "indeed_ca" in enabled
+    assert "biotalent_petridish" in enabled
+    assert "digital_health_canada" in enabled
     assert "indeed_ca" in playwright_boards
 
 
@@ -268,6 +296,43 @@ def test_linkedin_playwright_adapter_parses_fixture() -> None:
     assert len(results) == 1
     assert results[0].title == "Data Scientist - AI/ML"
     assert results[0].company_name == "Scotiabank"
+
+
+def test_petridish_adapter_parses_fixture() -> None:
+    source = BoardSource(
+        source_id="biotalent_petridish",
+        name="The PetriDish",
+        adapter="petridish",
+        base_url="https://www.biotalent.ca",
+    )
+    results = parse_petridish_listing(
+        PETRIDISH_FIXTURE,
+        source=source,
+        search_url="https://www.biotalent.ca/the-petridish/",
+        query="software",
+    )
+    assert len(results) == 1
+    assert results[0].title == "Software Engineer"
+    assert results[0].company_name == "Sanofi"
+    assert results[0].location == "Toronto, ON"
+
+
+def test_digital_health_canada_adapter_parses_fixture() -> None:
+    source = BoardSource(
+        source_id="digital_health_canada",
+        name="Digital Health Canada Careers",
+        adapter="digital_health_canada",
+        base_url="https://digitalhealthcanada.com",
+    )
+    results = parse_digital_health_canada_listing(
+        DHC_FIXTURE,
+        source=source,
+        search_url="https://digitalhealthcanada.com/careers/",
+        query="",
+    )
+    assert len(results) == 1
+    assert "Assistant Professor" in results[0].title
+    assert results[0].company_name == "University of Toronto"
 
 
 def test_detect_blocked_page_datadome() -> None:

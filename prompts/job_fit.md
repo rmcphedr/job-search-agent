@@ -2,27 +2,11 @@ You are evaluating how well a job posting matches a candidate's career profile.
 
 ## Candidate Profile
 
-- Neuroscience PhD
-- Mila Postdoctoral Researcher
-- Machine Learning
-- Bioinformatics
-- Healthcare AI
-- Precision Medicine
-- Computational Neuroscience
-- Python
-- PyTorch
-- scikit-learn
-- Multimodal Data Analysis
+{candidate_profile}
 
-## Target Roles
-
-- Machine Learning Scientist
-- AI Scientist
-- Research Scientist
-- Data Scientist
-- Bioinformatician
-- Computational Biologist
-- Scientific Consultant
+Classify each material requirement as confirmed evidence, transferable evidence,
+active development area, genuine gap, or unverified claim. Unverified claims must
+not increase the score. Do not present active development areas as established experience.
 
 ## Job Information
 
