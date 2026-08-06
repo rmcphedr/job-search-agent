@@ -29,6 +29,8 @@ job_board_domains:
   - biotalent.ca
   - bioinformatics.ca
   - lifesciencesbc.ca
+  - mila.quebec
+  - apply.workable.com
   - neurotechjobs.io
   - neurotechx.com
   - jobs.neurotechx.com
@@ -73,21 +75,38 @@ boards:
 
   - source_id: google_jobs
     name: Google Jobs
-    adapter: stub
+    adapter: google_jobs
     priority: high
     phase: 3
-    enabled: false
-    base_url: https://www.google.com/search
-    notes: "Aggregator; requires Playwright or SerpAPI. Phase 3."
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://www.google.com
+    search_path: /search
+    wait_selector: "[data-job-id], div[jsname='x5pWN'], div[class*='PwjeAc']"
+    search_params:
+      location: Canada
+      hl: en-CA
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    notes: "Playwright-only Google Jobs surface; markup availability may vary by query or region."
 
   - source_id: glassdoor
     name: Glassdoor Canada
-    adapter: stub
+    adapter: glassdoor
     priority: medium
     phase: 3
-    enabled: false
+    enabled: true
+    scrape_mode: playwright
     base_url: https://www.glassdoor.ca
-    notes: "Anti-bot; phase 3 Playwright."
+    search_path: /Job/jobs.htm
+    wait_selector: "li[data-test='jobListing'], [class*='JobCard_jobCardContainer']"
+    search_params:
+      location: Canada
+      locT: N
+      locId: "3"
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    notes: "Playwright adapter; may be blocked or require a consent/login interaction."
 
   - source_id: jobbank
     name: Job Bank Canada
@@ -100,12 +119,15 @@ boards:
 
   - source_id: workopolis
     name: Workopolis
-    adapter: stub
+    adapter: workopolis
     priority: medium
     phase: 3
-    enabled: false
+    enabled: true
     base_url: https://www.workopolis.com
-    notes: "Returns 403 for automated requests."
+    search_path: /search
+    search_params:
+      l: Canada
+    notes: "Canadian listings; Workopolis is part of the Indeed network."
 
   - source_id: eluta
     name: Eluta
@@ -161,6 +183,19 @@ boards:
     enabled: true
     fetch_once: true
     base_url: https://lifesciencesbc.ca
+
+  - source_id: mila
+    name: Mila Careers
+    adapter: mila
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://apply.workable.com
+    search_path: /api/v1/widget/accounts/mila-2
+    search_params:
+      account_slug: mila-2
+    notes: "Official Mila institute openings via Workable (linked from mila.quebec). Partner-company jobs are not aggregated here."
 
   # --- Neuro / health ---
   - source_id: sfn_neurojobs

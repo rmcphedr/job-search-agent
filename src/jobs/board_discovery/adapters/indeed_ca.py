@@ -57,15 +57,24 @@ class IndeedCaAdapter:
         soup = BeautifulSoup(html, "html.parser")
         results: list[JobCandidate] = []
 
-        cards = soup.select("div.job_seen_beacon, div.cardOutline, td.resultContent")
+        cards = soup.select(
+            "div.job_seen_beacon, div.cardOutline, td.resultContent, "
+            "div[data-testid='slider_item'], li[data-testid='jobsearch-ResultsList-item']"
+        )
         if not cards:
             cards = soup.select("a[href*='/rc/clk'], a[href*='/viewjob']")
 
         for card in cards:
-            title_el = card.select_one("h2.jobTitle span, h2.jobTitle a, a.jcs-JobTitle")
+            title_el = card.select_one(
+                "h2.jobTitle span[title], h2.jobTitle a, a.jcs-JobTitle, "
+                "a[data-testid='jobTitle']"
+            )
             company_el = card.select_one("[data-testid='company-name'], span.companyName")
             location_el = card.select_one("[data-testid='text-location'], div.companyLocation")
-            link_el = card.select_one("a[href*='/viewjob'], a[href*='/rc/clk'], h2.jobTitle a")
+            link_el = card.select_one(
+                "a[href*='/viewjob'], a[href*='/rc/clk'], h2.jobTitle a, "
+                "a[data-testid='jobTitle']"
+            )
 
             title = title_el.get_text(" ", strip=True) if title_el else None
             company = company_el.get_text(" ", strip=True) if company_el else None

@@ -41,24 +41,31 @@ def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAda
     from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter
     from src.jobs.board_discovery.adapters.digital_health_canada import DigitalHealthCanadaAdapter
     from src.jobs.board_discovery.adapters.eluta import ElutaAdapter
+    from src.jobs.board_discovery.adapters.glassdoor import GlassdoorAdapter
+    from src.jobs.board_discovery.adapters.google_jobs import GoogleJobsAdapter
     from src.jobs.board_discovery.adapters.healthecareers import HealthecareersAdapter
     from src.jobs.board_discovery.adapters.html_list import HtmlListAdapter
     from src.jobs.board_discovery.adapters.indeed_ca import IndeedCaAdapter
     from src.jobs.board_discovery.adapters.jobbank import JobBankAdapter
     from src.jobs.board_discovery.adapters.life_sciences_bc import LifeSciencesBcAdapter
+    from src.jobs.board_discovery.adapters.mila import MilaWorkableAdapter
     from src.jobs.board_discovery.adapters.neurotech import NeurotechAdapter
     from src.jobs.board_discovery.adapters.neurotechx import NeurotechXAdapter
     from src.jobs.board_discovery.adapters.petridish import PetridishAdapter
     from src.jobs.board_discovery.adapters.stub import StubAdapter
     from src.jobs.board_discovery.adapters.wellfound import WellfoundAdapter
+    from src.jobs.board_discovery.adapters.workopolis import WorkopolisAdapter
 
     registry: dict[str, BoardAdapter] = {
         "jobbank": JobBankAdapter(),
         "indeed_ca": IndeedCaAdapter(),
         "eluta": ElutaAdapter(),
+        "glassdoor": GlassdoorAdapter(),
+        "google_jobs": GoogleJobsAdapter(),
         "biospace": BiospaceAdapter(),
         "bioinformatics_ca": BioinformaticsCaAdapter(),
         "life_sciences_bc": LifeSciencesBcAdapter(),
+        "mila": MilaWorkableAdapter(),
         "can_acn": CanAcnAdapter(),
         "petridish": PetridishAdapter(),
         "digital_health_canada": DigitalHealthCanadaAdapter(),
@@ -66,6 +73,7 @@ def get_adapter(adapter_name: str, *, scrape_mode: str = "requests") -> BoardAda
         "neurotech": NeurotechAdapter(),
         "neurotechx": NeurotechXAdapter(),
         "wellfound": WellfoundAdapter(),
+        "workopolis": WorkopolisAdapter(),
         "html_list": HtmlListAdapter(),
         "stub": StubAdapter(),
     }

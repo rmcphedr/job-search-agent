@@ -63,7 +63,7 @@ Do not bypass deduplication or edit `job_postings` directly.
 |-------|--------|
 | 1 (enabled) | Job Bank, BioSpace, Bioinformatics.ca, NeuroTechX |
 | 2 (enabled) | Life Sciences BC, CAN NeuroJobs, Health eCareers |
-| 3 (Playwright) | LinkedIn, Indeed CA, Eluta, Wellfound, neurotechjobs.io |
+| 3 | LinkedIn, Indeed CA, Glassdoor, Google Jobs, Workopolis, Eluta, Wellfound, neurotechjobs.io |
 
 Install Playwright before using phase 3 boards:
 

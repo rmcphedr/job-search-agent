@@ -12,9 +12,9 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from src.ui.analytics_view import render_analytics_view
+from src.ui.board_sources_view import render_board_sources_view
 from src.ui.company_view import render_company_view
 from src.ui.data_loader import global_search
-from src.ui.evaluations_view import render_evaluations_view
 from src.ui.jobs_view import render_jobs_view
 from src.ui.profile_view import render_profile_view
 from src.ui.session_utils import init_session_state, render_selection_sidebar, select_company, select_job
@@ -23,8 +23,8 @@ from src.ui.tracking_view import render_tracking_view
 PAGES = {
     "Tracking": render_tracking_view,
     "Companies": render_company_view,
-    "Company Fit": render_evaluations_view,
     "Jobs": render_jobs_view,
+    "Board Sources": render_board_sources_view,
     "Analytics": render_analytics_view,
     "Profile / Settings": render_profile_view,
 }

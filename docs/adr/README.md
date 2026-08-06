@@ -58,6 +58,7 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-011](ADR-011-job-application-tracking.md) | Job application tracking in SQLite | Accepted |
 | [ADR-012](ADR-012-synchronized-master-profile.md) | Synchronized master career profile | Accepted |
 | [ADR-013](ADR-013-job-evaluation-sqlite-merge.md) | Job evaluation SQLite merge | Accepted |
+| [ADR-014](ADR-014-employer-ats-adapters.md) | API-first employer ATS adapters | Accepted |
 
 ## Related documents
 

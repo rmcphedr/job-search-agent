@@ -19,7 +19,9 @@ Evaluation must remain a **separate agent step** (Cursor `job_fit_evaluation` sk
 3. **Auto-upsert companies** when a job references an unknown employer (`src/database/company_upsert.py`). Derive website from job URL domain when possible; otherwise use a deterministic placeholder `https://unresolved.local/{slug}`. Set `hiring_status = board_discovered` for later enrichment via company discovery.
 4. Extend **`job_postings`** with `source_board`, `discovery_run_id`, `keyword_score`, `matched_keywords`, `evaluated_at`. Leave `fit_score` / `fit_reason` **NULL** until agent evaluation.
 5. Reuse existing **`JobCandidate`**, **`filter_jobs`**, and ATS extractors in `job_extractors.py` when listings link to Greenhouse/Lever/Ashby/Workday/SmartRecruiters/iCIMS.
-6. **Phased rollout** for anti-bot boards (LinkedIn, Google Jobs, Glassdoor): catalogued as Essential/High but `enabled: false` until Playwright or official API integration (phase 3).
+6. **Phased rollout** for anti-bot boards. LinkedIn, Indeed, Glassdoor, and Google
+   Jobs use bounded Playwright adapters with static or structured-data parsers.
+   Workopolis uses its accessible Canada search pages.
 
 ## Alternatives considered
 
@@ -39,13 +41,14 @@ Evaluation must remain a **separate agent step** (Cursor `job_fit_evaluation` sk
 
 ### Negative / trade-offs
 
-- LinkedIn/Google/Glassdoor need phase-3 browser automation or paid APIs
+- Anti-bot boards may still return challenges and require parser maintenance
 - Placeholder websites require company-discovery pass to replace with real domains
 - High board count increases maintenance when HTML changes
 
 ### Follow-ups
 
-- Phase 3: Playwright adapters for LinkedIn, Google Jobs, Glassdoor
+- Phase 3: monitor Google Jobs markup and evaluate an official or paid API if the
+  browser surface becomes unreliable
 - Hermes event `board_jobs_discovered` → trigger `job_fit_evaluation` skill
 - Merge CLI for `job_evaluations.csv` → update `job_postings.fit_score`
 

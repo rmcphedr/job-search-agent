@@ -10,6 +10,7 @@ from src.database.company_upsert import (
     upsert_company_from_job,
 )
 from src.jobs.board_discovery.adapters.eluta import parse_eluta_listing
+from src.jobs.board_discovery.adapters.mila import parse_mila_workable_payload
 from src.jobs.board_discovery.adapters.digital_health_canada import parse_digital_health_canada_listing
 from src.jobs.board_discovery.adapters.petridish import parse_petridish_listing
 from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
@@ -121,6 +122,28 @@ DHC_FIXTURE = """
 </div>
 """
 
+MILA_WORKABLE_FIXTURE = """
+{
+  "name": "Mila - Institut québécois d'intelligence artificielle",
+  "jobs": [
+    {
+      "title": "Scientifique de Données, Éducation IA",
+      "shortlink": "https://apply.workable.com/j/ABC123",
+      "city": "Montreal",
+      "state": "Quebec",
+      "country": "Canada"
+    },
+    {
+      "title": "Full Stack Software Developer",
+      "shortlink": "https://apply.workable.com/j/DEF456",
+      "city": "Montreal",
+      "state": "Quebec",
+      "country": "Canada"
+    }
+  ]
+}
+"""
+
 
 def test_load_board_sources_config_has_essential_boards() -> None:
     config = load_board_sources_config()
@@ -135,6 +158,7 @@ def test_load_board_sources_config_has_essential_boards() -> None:
     assert "indeed_ca" in enabled
     assert "biotalent_petridish" in enabled
     assert "digital_health_canada" in enabled
+    assert "mila" in enabled
     assert "indeed_ca" in playwright_boards
 
 
@@ -333,6 +357,29 @@ def test_digital_health_canada_adapter_parses_fixture() -> None:
     assert len(results) == 1
     assert "Assistant Professor" in results[0].title
     assert results[0].company_name == "University of Toronto"
+
+
+def test_mila_workable_adapter_parses_fixture() -> None:
+    import json
+
+    source = BoardSource(
+        source_id="mila",
+        name="Mila Careers",
+        adapter="mila",
+        base_url="https://apply.workable.com",
+        search_path="/api/v1/widget/accounts/mila-2",
+    )
+    payload = json.loads(MILA_WORKABLE_FIXTURE)
+    results = parse_mila_workable_payload(
+        payload,
+        source=source,
+        search_url="https://apply.workable.com/api/v1/widget/accounts/mila-2",
+    )
+    assert len(results) == 2
+    assert results[0].title == "Scientifique de Données, Éducation IA"
+    assert results[0].company_name.startswith("Mila")
+    assert results[0].location == "Montreal, Quebec, Canada"
+    assert results[1].title == "Full Stack Software Developer"
 
 
 def test_detect_blocked_page_datadome() -> None:

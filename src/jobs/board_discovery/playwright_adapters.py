@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 
 from src.jobs.board_discovery.adapters.eluta import parse_eluta_listing
 from src.jobs.board_discovery.adapters.indeed_ca import IndeedCaAdapter
+from src.jobs.board_discovery.adapters.glassdoor import GlassdoorAdapter
+from src.jobs.board_discovery.adapters.google_jobs import GoogleJobsAdapter
 from src.jobs.board_discovery.config import BoardSource
 from src.jobs.board_discovery.http import BoardHttpClient
 from src.jobs.board_discovery.parsers import absolute_url, build_candidate
@@ -60,6 +62,73 @@ class PlaywrightIndeedCaAdapter(IndeedCaAdapter):
                 break
             candidates.extend(page_candidates)
         return candidates
+
+
+class PlaywrightGlassdoorAdapter(GlassdoorAdapter):
+    def search(
+        self,
+        query: str,
+        *,
+        location: str,
+        source: BoardSource,
+        client: BoardHttpClient,
+        max_pages: int,
+        browser: PlaywrightBrowserClient | None = None,
+    ) -> list[JobCandidate]:
+        del client
+        pw = _require_browser(browser)
+        candidates: list[JobCandidate] = []
+        base = source.base_url.rstrip("/")
+        search_url = f"{base}{source.search_path or '/Job/jobs.htm'}"
+        resolved_location = source.search_params.get("location", location)
+
+        for page in range(1, max_pages + 1):
+            params = {
+                "sc.keyword": query,
+                "locT": source.search_params.get("locT", "N"),
+                "locId": source.search_params.get("locId", "3"),
+                "location": resolved_location,
+                "p": str(page),
+            }
+            result = pw.get_page_html_for_board(search_url, params=params, board=source)
+            if result.blocked_reason:
+                break
+            page_candidates = self._parse_listing(
+                result.html, source=source, search_url=result.final_url, base=base
+            )
+            if not page_candidates:
+                break
+            candidates.extend(page_candidates)
+        return candidates
+
+
+class PlaywrightGoogleJobsAdapter(GoogleJobsAdapter):
+    def search(
+        self,
+        query: str,
+        *,
+        location: str,
+        source: BoardSource,
+        client: BoardHttpClient,
+        max_pages: int,
+        browser: PlaywrightBrowserClient | None = None,
+    ) -> list[JobCandidate]:
+        del client, max_pages
+        pw = _require_browser(browser)
+        base = source.base_url.rstrip("/")
+        search_url = f"{base}{source.search_path or '/search'}"
+        resolved_location = source.search_params.get("location", location)
+        params = {
+            "q": f"{query} jobs {resolved_location}".strip(),
+            "ibp": "htl;jobs",
+            "hl": source.search_params.get("hl", "en-CA"),
+        }
+        result = pw.get_page_html_for_board(search_url, params=params, board=source)
+        if result.blocked_reason:
+            return []
+        return self._parse_listing(
+            result.html, source=source, search_url=result.final_url, base=base
+        )
 
 
 class PlaywrightElutaAdapter:
@@ -270,6 +339,8 @@ class PlaywrightLinkedInAdapter:
 
 PLAYWRIGHT_ADAPTERS = {
     "indeed_ca": PlaywrightIndeedCaAdapter(),
+    "glassdoor": PlaywrightGlassdoorAdapter(),
+    "google_jobs": PlaywrightGoogleJobsAdapter(),
     "eluta": PlaywrightElutaAdapter(),
     "wellfound": PlaywrightWellfoundAdapter(),
     "neurotech": PlaywrightNeurotechAdapter(),

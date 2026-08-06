@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -54,7 +55,29 @@ def _new_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _log_run(summary: BoardDiscoverySummary, notes: str) -> None:
+def _log_run(summary: BoardDiscoverySummary) -> None:
+    payload = {
+        "run_id": summary.run_id,
+        "dry_run": summary.dry_run,
+        "boards_checked": summary.boards_checked,
+        "raw_jobs_found": summary.raw_jobs_found,
+        "jobs_after_filter": summary.jobs_after_filter,
+        "inserted": summary.inserted,
+        "duplicates_skipped": summary.duplicates_skipped,
+        "companies_created": summary.companies_created,
+        "boards": [
+            {
+                "source_id": stats.source_id,
+                "queries_run": stats.queries_run,
+                "raw_jobs": stats.raw_jobs,
+                "filtered_jobs": stats.filtered_jobs,
+                "notes": stats.notes,
+            }
+            for stats in summary.board_stats
+        ],
+    }
+    notes = json.dumps(payload, separators=(",", ":"))
+
     connection = get_connection()
     try:
         apply_migrations(connection)
@@ -174,7 +197,7 @@ def run_board_discovery(
 
     if dry_run:
         summary.inserted = 0
-        _log_run(summary, notes=f"dry_run run_id={run_id} raw={summary.raw_jobs_found} filtered={summary.jobs_after_filter}")
+        _log_run(summary)
         return summary
 
     save_result = save_jobs(
@@ -187,12 +210,5 @@ def run_board_discovery(
     summary.duplicates_skipped = save_result.duplicates_skipped
     summary.companies_created = save_result.companies_created
 
-    _log_run(
-        summary,
-        notes=(
-            f"run_id={run_id} boards={summary.boards_checked} raw={summary.raw_jobs_found} "
-            f"filtered={summary.jobs_after_filter} inserted={summary.inserted} "
-            f"companies_created={summary.companies_created}"
-        ),
-    )
+    _log_run(summary)
     return summary
