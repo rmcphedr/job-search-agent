@@ -411,7 +411,13 @@ def test_boards_need_playwright_detects_phase3() -> None:
     assert boards_need_playwright(enabled) is True
 
 
-def test_ats_enrich_skips_non_ats_urls() -> None:
+def test_description_enrich_keeps_unresolved_candidate(monkeypatch) -> None:
+    from src.jobs.description_enrichment import DescriptionEnrichmentResult
+
+    monkeypatch.setattr(
+        "src.jobs.board_discovery.ats_enrich.enrich_description",
+        lambda job: DescriptionEnrichmentResult(status="not_found"),
+    )
     candidate = JobCandidate(
         company_name="Acme",
         title="Engineer",

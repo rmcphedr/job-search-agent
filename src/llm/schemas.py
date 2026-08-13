@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,11 +40,25 @@ class CompanyFitResult(BaseModel):
         return _clamp_score(value)
 
 
+class QualificationAssessment(BaseModel):
+    requirement: str
+    status: Literal["match", "gap"]
+    evidence: str
+    preferred: bool = False
+
+
 class JobFitResult(BaseModel):
     job_id: int | None = None
     job_title: str
     company_name: str
     fit_score: float = Field(ge=0, le=10)
+    salary: str | None = None
+    seniority: str | None = None
+    employment_type: str | None = None
+    role_summary: list[str] = Field(default_factory=list)
+    job_requirements: list[str] = Field(default_factory=list)
+    preferred_qualifications: list[str] = Field(default_factory=list)
+    qualification_assessment: list[QualificationAssessment] = Field(default_factory=list)
     skills_match: list[str] = Field(default_factory=list)
     skill_gaps: list[str] = Field(default_factory=list)
     recommended_actions: list[str] = Field(default_factory=list)

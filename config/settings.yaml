@@ -28,3 +28,9 @@ scraping:
     extra_wait_ms: 2000
     viewport_width: 1280
     viewport_height: 900
+
+integrations:
+  resume_pipeline:
+    repository: ../resume-generation-pipeline
+    python: python3
+    timeout_seconds: 900

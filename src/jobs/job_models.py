@@ -21,6 +21,7 @@ class JobCandidate(BaseModel):
     matched_keywords: list[str] = Field(default_factory=list)
     triage_score: float | None = None
     llm_fit_score: float | None = None
+    fit_details: str | None = None
     content_hash: str | None = None
     notes: str | None = None
 

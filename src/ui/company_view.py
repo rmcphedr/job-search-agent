@@ -1,4 +1,4 @@
-"""Companies view with filters, selection, and pipeline actions."""
+"""Companies view with filters, selection, pipeline actions, and detail panel."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from src.database.import_inventory import get_inventory_path
+from src.orchestration.run_loader import load_calibration_summary, load_latest_run_manifest, load_run_summaries
 from src.ui.actions import (
     CareerDiscoveryResult,
     JobDiscoveryActionResult,
@@ -13,23 +14,20 @@ from src.ui.actions import (
     run_career_page_discovery,
     run_job_discovery_action,
 )
-from src.ui.data_loader import COMPANY_TABLE_COLUMNS, build_company_dashboard_frame, load_run_history
-from src.ui.session_utils import select_company
+from src.ui.company_detail_view import render_company_detail_panel
+from src.ui.data_loader import COMPANY_LIST_COLUMNS, build_company_dashboard_frame, load_run_history
 from src.ui.status_utils import CAREER_FILTER_LABELS, JOB_FILTER_LABELS
 
-COMPANY_TABLE_KEY = "company_selection_table"
+COMPANY_BROWSE_TABLE_KEY = "company_browse_table"
 
 
 def render_company_view() -> None:
     """Render the interactive companies control panel."""
-    if st.session_state.get("show_company_detail") and st.session_state.get("selected_company"):
-        from src.ui.company_detail_view import render_company_detail_view
-
-        render_company_detail_view()
-        return
-
     st.header("Companies")
-    st.caption("Browse the company inventory, run discovery pipelines, and review status.")
+    st.caption(
+        "Browse the company inventory, review fit evaluations, and run discovery pipelines. "
+        "Click a row to preview details in the panel."
+    )
 
     inventory_path = get_inventory_path()
     try:
@@ -48,104 +46,90 @@ def render_company_view() -> None:
             st.warning("Company inventory is empty.")
         return
 
+    _render_discovery_run_summary()
+
     filtered, sorted_frame = _render_filter_form(frame)
+    browse_table = _prepare_browse_table(sorted_frame)
 
-    st.subheader("Company list")
-    st.caption("Check companies in the list below, then run an action.")
+    table_col, panel_col = st.columns([1.55, 1])
 
-    select_col1, select_col2, select_col3 = st.columns([1, 1, 4])
-    with select_col1:
-        if st.button("Select all shown", width="stretch"):
-            _set_all_checkbox_state(sorted_frame, selected=True)
-            st.rerun()
-    with select_col2:
-        if st.button("Clear selection", width="stretch"):
-            _set_all_checkbox_state(sorted_frame, selected=False)
-            st.rerun()
+    with table_col:
+        st.metric("Companies shown", len(browse_table))
+        st.caption("Click rows to select. Shift+Click extends selection; Cmd/Ctrl+Click toggles rows.")
 
-    editable_table = _build_selectable_table(sorted_frame)
-    edited_table = st.data_editor(
-        editable_table,
-        width="stretch",
-        hide_index=True,
-        num_rows="fixed",
-        column_config={
-            "Select": st.column_config.CheckboxColumn("Select", default=False, width="small"),
-            "company_name": st.column_config.TextColumn("Company", disabled=True),
-            "industry": st.column_config.TextColumn("Industry", disabled=True),
-            "location": st.column_config.TextColumn("Location", disabled=True),
-            "priority": st.column_config.TextColumn("Priority", disabled=True),
-            "hiring_status": st.column_config.TextColumn("Hiring Status", disabled=True),
-            "career_page_status": st.column_config.TextColumn("Career Page Status", disabled=True),
-            "job_search_status": st.column_config.TextColumn("Job Search Status", disabled=True),
-            "jobs_found": st.column_config.NumberColumn("Jobs Found", format="%d", disabled=True),
-            "last_checked": st.column_config.TextColumn("Last Checked", disabled=True),
-            "career_page": st.column_config.LinkColumn("Career Page", disabled=True),
-        },
-        disabled=[column for column in editable_table.columns if column != "Select"],
-        key=COMPANY_TABLE_KEY,
-    )
+        selection_event = st.dataframe(
+            browse_table,
+            width="stretch",
+            height=520,
+            hide_index=True,
+            key=COMPANY_BROWSE_TABLE_KEY,
+            on_select="rerun",
+            selection_mode="multi-row",
+            column_config={
+                "company_name": st.column_config.TextColumn("Company", width="medium"),
+                "industry": st.column_config.TextColumn("Industry", width="medium"),
+                "fit_score": st.column_config.NumberColumn("Fit", format="%.1f"),
+                "priority": st.column_config.TextColumn("Priority", width="small"),
+                "hiring_status": st.column_config.TextColumn("Hiring", width="small"),
+                "career_page_status": st.column_config.TextColumn("Career page", width="small"),
+                "job_search_status": st.column_config.TextColumn("Job search", width="small"),
+                "jobs_found": st.column_config.NumberColumn("Jobs", format="%d"),
+                "company_id": None,
+            },
+            column_order=[*COMPANY_LIST_COLUMNS, "company_id"],
+        )
 
-    action_targets = _selected_company_names(edited_table)
-    with select_col3:
-        st.caption(f"{len(action_targets)} companies selected")
+        selected_indices = _selection_rows(selection_event, COMPANY_BROWSE_TABLE_KEY)
+        selected_names = _company_names_for_indices(browse_table, selected_indices)
+        _render_action_buttons(browse_table, selected_names)
+        _render_last_result_summary()
+        _render_run_history()
 
-    company_names = sorted_frame["company_name"].tolist()
-    if company_names:
-        profile_col1, profile_col2 = st.columns([3, 1])
-        with profile_col1:
-            profile_company = st.selectbox(
-                "Open company profile",
-                options=company_names,
-                index=_profile_select_index(company_names),
-                key="open_company_profile_select",
-            )
-        with profile_col2:
-            st.write("")
-            st.write("")
-            if st.button("View Company", width="stretch", key="view_company_profile_button"):
-                select_company(profile_company)
-                st.rerun()
-
-    _render_action_buttons(sorted_frame, action_targets)
-    _render_last_result_summary()
-
-    st.metric("Companies shown", len(sorted_frame))
-    _render_run_history()
+    with panel_col:
+        st.subheader("Company preview")
+        if len(selected_names) == 1:
+            render_company_detail_panel(selected_names[0])
+        elif len(selected_names) > 1:
+            st.info(f"{len(selected_names)} companies selected.")
+            summary = browse_table.iloc[selected_indices][["company_name", "industry", "fit_score", "jobs_found"]]
+            st.dataframe(summary, width="stretch", hide_index=True)
+        else:
+            preselected = st.session_state.get("selected_company")
+            if preselected and preselected in browse_table["company_name"].tolist():
+                render_company_detail_panel(preselected)
+            else:
+                st.caption("Select a company in the table to preview fit breakdown and details.")
 
 
-def _profile_select_index(company_names: list[str]) -> int:
-    current = st.session_state.get("open_company_profile_select")
-    if current in company_names:
-        return company_names.index(current)
-    return 0
-
-
-def _build_selectable_table(sorted_frame: pd.DataFrame) -> pd.DataFrame:
-    """Build table input for data_editor, preserving checkbox state from the widget key."""
+def _prepare_browse_table(sorted_frame: pd.DataFrame) -> pd.DataFrame:
     table = sorted_frame.copy()
-    table.insert(0, "Select", False)
-    table = table[["Select", *COMPANY_TABLE_COLUMNS]]
-
-    existing = st.session_state.get(COMPANY_TABLE_KEY)
-    if not isinstance(existing, pd.DataFrame) or "company_name" not in existing.columns:
-        return table
-
-    prior = existing.set_index("company_name")["Select"].to_dict()
-    table["Select"] = table["company_name"].map(lambda name: bool(prior.get(name, False)))
-    return table
+    if "fit_score" in table.columns:
+        table["fit_score"] = pd.to_numeric(table["fit_score"], errors="coerce")
+    columns = [column for column in [*COMPANY_LIST_COLUMNS, "company_id"] if column in table.columns]
+    return table[columns].reset_index(drop=True)
 
 
-def _set_all_checkbox_state(sorted_frame: pd.DataFrame, *, selected: bool) -> None:
-    table = sorted_frame.copy()
-    table.insert(0, "Select", selected)
-    table = table[["Select", *COMPANY_TABLE_COLUMNS]]
-    st.session_state[COMPANY_TABLE_KEY] = table
+def _render_discovery_run_summary() -> None:
+    latest_run = load_latest_run_manifest()
+    if latest_run is None:
+        return
 
+    with st.expander("Latest discovery run", expanded=False):
+        counts = latest_run.counts
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Run ID", latest_run.run_id)
+        c2.metric("Merged candidates", counts.candidates_merged)
+        c3.metric("Evaluations merged", counts.evaluations_merged)
+        c4.metric("Duplicates skipped", counts.candidates_duplicate)
+        c5.metric("Status", latest_run.status)
 
-def _selected_company_names(edited_table: pd.DataFrame) -> list[str]:
-    selected = edited_table[edited_table["Select"] == True]  # noqa: E712
-    return [str(name) for name in selected["company_name"].tolist()]
+        if latest_run.request:
+            st.json(latest_run.request)
+
+        calibration = load_calibration_summary(latest_run.run_id)
+        if calibration:
+            st.markdown("**Calibration status**")
+            st.json(calibration)
 
 
 def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -158,8 +142,10 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             "locations": [],
             "career_statuses": [],
             "job_statuses": [],
-            "sort_label": "Company",
-            "ascending": True,
+            "min_fit_score": 0.0,
+            "include_unevaluated": True,
+            "sort_label": "Fit score",
+            "ascending": False,
         },
     )
 
@@ -206,7 +192,7 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
                 key="filter_job_status",
             )
 
-        sort_col1, sort_col2, sort_col3 = st.columns([3, 1, 1])
+        sort_col1, sort_col2, sort_col3, sort_col4 = st.columns([2, 1, 1, 1])
         with sort_col1:
             sort_options = list(_sort_options().keys())
             sort_label = st.selectbox(
@@ -220,9 +206,22 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         with sort_col2:
             ascending = st.checkbox("Ascending", value=defaults["ascending"], key="filter_ascending")
         with sort_col3:
-            st.write("")
-            st.write("")
-            apply_filters = st.form_submit_button("Apply filters", width="stretch")
+            min_fit_score = st.slider(
+                "Min fit score",
+                min_value=0.0,
+                max_value=10.0,
+                value=float(defaults.get("min_fit_score", 0.0)),
+                step=0.5,
+                key="filter_min_fit_score",
+            )
+        with sort_col4:
+            include_unevaluated = st.checkbox(
+                "Include unevaluated",
+                value=defaults.get("include_unevaluated", True),
+                key="filter_include_unevaluated",
+            )
+
+        apply_filters = st.form_submit_button("Apply filters", width="stretch")
 
     if apply_filters:
         st.session_state.company_filter_defaults = {
@@ -231,10 +230,12 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
             "locations": selected_locations,
             "career_statuses": selected_career,
             "job_statuses": selected_job,
+            "min_fit_score": min_fit_score,
+            "include_unevaluated": include_unevaluated,
             "sort_label": sort_label,
             "ascending": ascending,
         }
-        st.session_state.pop(COMPANY_TABLE_KEY, None)
+        _clear_table_selection(COMPANY_BROWSE_TABLE_KEY)
 
     active = st.session_state.company_filter_defaults
     filtered = frame.copy()
@@ -255,6 +256,14 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
         }
         filtered = filtered[filtered["job_search_status"].isin(allowed)]
 
+    if "fit_score" in filtered.columns:
+        filtered["fit_score"] = pd.to_numeric(filtered["fit_score"], errors="coerce")
+        min_score = float(active.get("min_fit_score", 0.0))
+        if active.get("include_unevaluated", True):
+            filtered = filtered[filtered["fit_score"].isna() | (filtered["fit_score"] >= min_score)]
+        else:
+            filtered = filtered[filtered["fit_score"].notna() & (filtered["fit_score"] >= min_score)]
+
     sort_column = _sort_options()[active["sort_label"]]
     sorted_frame = filtered.sort_values(
         by=sort_column,
@@ -271,13 +280,14 @@ def _render_filter_form(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
 def _sort_options() -> dict[str, str]:
     return {
+        "Fit score": "fit_score",
         "Company": "company_name",
         "Priority": "priority",
         "Jobs Found": "jobs_found",
     }
 
 
-def _render_action_buttons(sorted_frame: pd.DataFrame, action_targets: list[str]) -> None:
+def _render_action_buttons(browse_table: pd.DataFrame, action_targets: list[str]) -> None:
     force_recheck = st.checkbox(
         "Force re-check existing career pages",
         value=False,
@@ -285,7 +295,8 @@ def _render_action_buttons(sorted_frame: pd.DataFrame, action_targets: list[str]
         key="force_recheck_career_pages",
     )
 
-    col1, col2, col3, col4 = st.columns(4)
+    count = len(action_targets)
+    col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1.2])
     with col1:
         find_careers = st.button("Find Career Pages", width="stretch", key="find_career_pages_button")
     with col2:
@@ -294,13 +305,18 @@ def _render_action_buttons(sorted_frame: pd.DataFrame, action_targets: list[str]
         refresh = st.button("Refresh Dashboard", width="stretch", key="refresh_dashboard_button")
     with col4:
         st.download_button(
-            label="Export Filtered Companies",
-            data=sorted_frame.to_csv(index=False).encode("utf-8"),
+            label="Export Filtered",
+            data=browse_table.drop(columns=["company_id"], errors="ignore").to_csv(index=False).encode("utf-8"),
             file_name="filtered_companies.csv",
             mime="text/csv",
             width="stretch",
             key="export_filtered_companies_button",
         )
+    with col5:
+        if st.button("Clear selection", disabled=count == 0, width="stretch", key="companies_clear_selection"):
+            _clear_table_selection(COMPANY_BROWSE_TABLE_KEY)
+            st.rerun()
+        st.caption(f"{count} selected")
 
     if refresh:
         refresh_data()
@@ -312,13 +328,13 @@ def _render_action_buttons(sorted_frame: pd.DataFrame, action_targets: list[str]
 
     if find_careers:
         if not action_targets:
-            st.error("Select at least one company in the list above.")
+            st.error("Select at least one company in the table above.")
             return
         _run_career_discovery(action_targets, force=force_recheck)
 
     if run_jobs:
         if not action_targets:
-            st.error("Select at least one company in the list above.")
+            st.error("Select at least one company in the table above.")
             return
         _run_job_discovery(action_targets)
 
@@ -416,20 +432,61 @@ def _render_last_result_summary() -> None:
 
 def _render_run_history() -> None:
     runs = load_run_history()
-    st.subheader("Run history")
-    if runs.empty:
-        st.info("No pipeline runs recorded yet.")
+    summaries = load_run_summaries(limit=5)
+    if runs.empty and not summaries:
         return
 
-    display = runs[["run_type", "started_at", "companies_checked"]].copy()
-    display = display.rename(
-        columns={
-            "run_type": "Run type",
-            "started_at": "Time",
-            "companies_checked": "Companies checked",
-        }
-    )
-    st.dataframe(display, width="stretch", hide_index=True)
+    with st.expander("Run history", expanded=False):
+        if not runs.empty:
+            display = runs[["run_type", "started_at", "companies_checked"]].copy()
+            display = display.rename(
+                columns={
+                    "run_type": "Run type",
+                    "started_at": "Time",
+                    "companies_checked": "Companies checked",
+                }
+            )
+            st.dataframe(display, width="stretch", hide_index=True)
+
+        if summaries:
+            st.markdown("**Recent Hermes discovery runs**")
+            frame = pd.DataFrame(summaries)
+            if not frame.empty:
+                st.dataframe(frame[["run_id", "status", "started_at", "counts"]], width="stretch", hide_index=True)
+
+
+def _selection_rows(selection_event: object | None, key: str) -> list[int]:
+    if selection_event is not None and hasattr(selection_event, "selection"):
+        selection = selection_event.selection
+        if selection is not None and hasattr(selection, "rows"):
+            return list(selection.rows or [])
+    return _get_table_selection(key)
+
+
+def _get_table_selection(key: str) -> list[int]:
+    state = st.session_state.get(key)
+    if state is None:
+        return []
+    if hasattr(state, "selection") and state.selection is not None:
+        return list(state.selection.rows or [])
+    if isinstance(state, dict):
+        selection = state.get("selection", {})
+        if isinstance(selection, dict):
+            return list(selection.get("rows", []))
+    return []
+
+
+def _clear_table_selection(key: str) -> None:
+    st.session_state[key] = {"selection": {"rows": [], "columns": [], "cells": []}}
+
+
+def _company_names_for_indices(table: pd.DataFrame, indices: list[int]) -> list[str]:
+    if not indices or "company_name" not in table.columns:
+        return []
+    valid_indices = [index for index in indices if 0 <= index < len(table)]
+    if not valid_indices:
+        return []
+    return [str(name) for name in table.iloc[valid_indices]["company_name"].tolist()]
 
 
 def _sorted_unique(series: pd.Series) -> list[str]:

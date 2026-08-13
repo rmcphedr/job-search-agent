@@ -204,6 +204,20 @@ Launch the Streamlit dashboard to browse companies and jobs, run discovery pipel
 streamlit run app/dashboard.py
 ```
 
+Jobs clipped into the sibling Obsidian resume repository can be normalized into
+the same SQLite workflow before evaluation:
+
+```bash
+python3 -m src.integrations.obsidian_jobs --dry-run
+python3 -m src.integrations.obsidian_jobs
+```
+
+Clipping frontmatter should identify the posting as `title: "Role | Company"`
+and include its original URL in `source`. When the company is omitted from the
+title, the importer can also recognize standard clipper descriptions such as
+`Join Company as Role`. Imported descriptions are marked verified; new or
+changed jobs remain pending until the standard job-fit evaluation merge.
+
 ### Views
 
 - **Companies** — inventory with career page and job search status, filters, sorting, pipeline actions, and company detail pages

@@ -1,19 +1,35 @@
 ---
 name: resume-tailoring
-description: Placeholder for future resume tailoring per job posting. Not implemented in MVP.
+description: Orchestrate evidence-first resume tailoring for a tracked job through the sibling resume-generation pipeline. Use when preparing a job application, generating a tailored resume, or inspecting resume artifacts and validation warnings.
 ---
 
-# Resume Tailoring
+# Resume Tailoring Bridge
 
-**Status: placeholder — do not run in MVP workflows.**
+Keep this repository responsible for job and application state. Keep the
+sibling `resume-generation-pipeline` responsible for personal evidence,
+tailoring rules, templates, validation, and DOCX output.
 
-## Future scope
+## Workflow
 
-1. Read [user/master_cv.md](../../user/master_cv.md), [user/proof_points.md](../../user/proof_points.md), [user/voice_style.md](../../user/voice_style.md).
-2. Read target job from evaluation staging or SQLite.
-3. Produce tailored resume markdown/PDF draft in `reports/resume_tailoring/`.
-4. Python validates length, section structure, and stores version metadata.
+1. Require a tracked job with a stored description.
+2. Create a versioned request through
+   `src.integrations.resume_pipeline.create_resume_request`.
+3. Invoke `run_resume_generation`; do not duplicate or directly edit the
+   sibling repository's `personal/` evidence.
+4. Record returned artifact paths and warnings in the `resume` application
+   preparation step.
+5. Mark the step complete only when the bridge reports `complete` and returns
+   a DOCX path.
+6. Never submit an application from this skill.
 
-## MVP
+## Configuration
 
-Skip this skill. Use **company_fit_evaluation** and **job_fit_evaluation** only.
+Read `config/settings.yaml` → `integrations.resume_pipeline`. Allow
+`RESUME_PIPELINE_ROOT` to override the repository path for local environments.
+
+## Contract
+
+Requests and results use schema version 1 and are retained under
+`data/staging/resume_requests/` and `data/staging/resume_results/`. Treat the
+result as failed when warnings indicate missing drafts, validation errors,
+build errors, or a missing DOCX artifact.

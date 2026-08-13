@@ -13,6 +13,7 @@ Evaluate how well each job posting matches the candidate.
 - [user/career_profile.md](../../user/career_profile.md)
 - [user/proof_points.md](../../user/proof_points.md)
 - [user/project_inventory.md](../../user/project_inventory.md)
+- [user/agent_calibration.md](../../user/agent_calibration.md)
 - [config/target_roles.yml](../../config/target_roles.yml)
 - Active jobs: SQLite `job_postings` or staging from discovery
 - Legacy prompt: [prompts/job_fit.md](../../prompts/job_fit.md)
@@ -25,6 +26,8 @@ Evaluate how well each job posting matches the candidate.
 4. Write staging JSON and optional markdown report.
 
 Before scoring, run `python3 -m src.profile.master_profile --check`. If stale, warn and synchronize. Classify every material requirement as **confirmed evidence**, **transferable evidence**, **active development area**, **genuine gap**, or **unverified claim**. Unverified claims must not affect scoring, and active development areas must not be presented as established experience.
+
+Apply durable preference themes from `user/agent_calibration.md`, including employment-type exclusions, experience-equivalency rules, location weighting, and strategic-growth tolerance.
 
 ## Internal dimensions (inform `fit_score`)
 
@@ -44,6 +47,16 @@ Before scoring, run `python3 -m src.profile.master_profile --check`. If stale, w
     "job_title": "Machine Learning Scientist",
     "company_name": "Acme Health AI",
     "fit_score": 8.0,
+    "salary": null,
+    "seniority": "Mid-level",
+    "employment_type": "Full-time",
+    "role_summary": ["Build and validate healthcare ML systems"],
+    "job_requirements": ["Graduate degree", "2+ years relevant experience"],
+    "preferred_qualifications": ["Healthcare ML experience"],
+    "qualification_assessment": [
+      {"requirement": "Graduate degree", "status": "match", "evidence": "Confirmed PhD", "preferred": false},
+      {"requirement": "Healthcare ML experience", "status": "gap", "evidence": "No direct industry evidence", "preferred": true}
+    ],
     "skills_match": ["Python", "PyTorch", "healthcare ML"],
     "skill_gaps": ["clinical trial design"],
     "recommended_actions": ["Emphasize Mila multimodal work"],

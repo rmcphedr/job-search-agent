@@ -10,6 +10,8 @@ defaults:
   min_keyword_score: 0.25
   require_canada_location: true
   max_ats_enrichments: 10
+  # Shared description enrichment budget. Falls back to max_ats_enrichments for compatibility.
+  max_description_enrichments: 10
 
 # Domains treated as job boards (not employer websites) when deriving company website.
 job_board_domains:

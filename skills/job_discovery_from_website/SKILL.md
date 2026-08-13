@@ -60,6 +60,17 @@ python -m src.jobs.run_job_discovery --limit 50
 python -m src.jobs.run_job_discovery --company "Valence Labs" --dry-run
 ```
 
+Registered employer ATS sources:
+
+```bash
+# Discover employer ATS boards, refresh them, and label legacy ATS jobs
+python -m src.jobs.run_employer_ats_discovery
+
+# Preview one provider or employer without source/job writes
+python -m src.jobs.run_employer_ats_discovery --provider greenhouse --dry-run
+python -m src.jobs.run_employer_ats_discovery --company "Valence Labs" --dry-run
+```
+
 Key modules: `src/jobs/job_extractors`, `src/jobs/filter_jobs`, `src/jobs/save_jobs`.
 
 ## Agent vs Python

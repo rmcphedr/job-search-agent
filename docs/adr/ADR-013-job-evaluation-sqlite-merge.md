@@ -12,7 +12,9 @@ Agent job evaluations were defined as staging JSON, and SQLite reserved `fit_sco
 
 ## Decision
 
-Add optional `job_id` to `JobFitResult` and require it for SQLite-backed evaluation merges. Before updating anything, the Python merger validates the full batch and verifies each ID against the active job's exact title and company. A successful batch atomically updates the three evaluation columns and emits one `job.evaluation.merged` event per job.
+Add optional `job_id` to `JobFitResult` and require it for SQLite-backed evaluation merges. Before updating anything, the Python merger validates the full batch and verifies each ID against the active job's exact title and company. A successful batch atomically updates the evaluation columns and emits one `job.evaluation.merged` event per job. The complete validated result is retained as JSON in `fit_details`; score, summary, and timestamp remain denormalized.
+
+The merger also requires an enriched description with a recorded verification time. Authoritative expiration checks set the posting inactive and prevent evaluation, so fit work is not spent on known-closed roles.
 
 ## Alternatives considered
 
@@ -31,11 +33,11 @@ Add optional `job_id` to `JobFitResult` and require it for SQLite-backed evaluat
 
 ### Negative / trade-offs
 
-- Rich evaluation lists remain in staging JSON; SQLite currently stores only score, summary, and timestamp.
+- Structured evaluation details are stored as JSON rather than normalized child rows.
 
 ### Follow-ups
 
-- Add canonical storage for structured matches, gaps, actions, concerns, and confidence if the dashboard needs them.
+- Consider normalized child rows if structured fields later need independent querying.
 
 ## Implementation notes
 

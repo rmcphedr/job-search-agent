@@ -73,6 +73,23 @@ def inject_tracking_theme() -> None:
             padding-bottom: 0.35rem;
             margin-bottom: 0.5rem;
         }}
+        .tracking-header h2 {{ margin:0; color:{TEAL_DARK}; }}
+        .tracking-header p {{ margin:.35rem 0 0; color:#334155; }}
+        .pipeline-strip {{
+            display:grid; grid-template-columns:repeat(5,1fr); margin:1rem 0 1.25rem;
+            border:1px solid #cbd5e1; border-radius:10px; overflow:hidden;
+        }}
+        .pipeline-step {{
+            position:relative; padding:.72rem .45rem; text-align:center; font-size:.82rem;
+            font-weight:700; color:#64748b; background:#f8fafc; border-right:1px solid #cbd5e1;
+        }}
+        .pipeline-step:last-child {{ border-right:0; }}
+        .pipeline-step.done {{ background:#ccfbf1; color:#115e59; }}
+        .pipeline-step.current {{ background:#0f766e; color:white; }}
+        @media (max-width: 760px) {{
+            .pipeline-strip {{ grid-template-columns:1fr; }}
+            .pipeline-step {{ border-right:0; border-bottom:1px solid #cbd5e1; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,

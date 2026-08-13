@@ -179,6 +179,7 @@ def save_jobs(
 
             fit_score = None if pending_evaluation else _resolve_fit_score(candidate)
             fit_reason = None if pending_evaluation else _build_fit_reason(candidate)
+            fit_details = None if pending_evaluation else candidate.fit_details
             board = source_board or candidate.provider
             matched_keywords_json = _serialize_matched_keywords(candidate.matched_keywords)
 
@@ -195,6 +196,8 @@ def save_jobs(
                             active = 1,
                             fit_score = ?,
                             fit_reason = ?,
+                            fit_details = ?,
+                            evaluated_at = CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
                             source_board = coalesce(?, source_board),
                             discovery_run_id = coalesce(?, discovery_run_id),
                             keyword_score = ?,
@@ -209,6 +212,8 @@ def save_jobs(
                             candidate.description,
                             fit_score,
                             fit_reason,
+                            fit_details,
+                            fit_details,
                             board,
                             discovery_run_id,
                             candidate.keyword_score,
@@ -218,7 +223,33 @@ def save_jobs(
                     )
                     result.updated += 1
                 else:
-                    result.duplicates_skipped += 1
+                    existing = connection.execute(
+                        "SELECT description FROM job_postings WHERE job_id = ?;",
+                        (existing_job_id,),
+                    ).fetchone()
+                    existing_description = str(existing["description"] or "").strip() if existing else ""
+                    if candidate.description and not existing_description:
+                        connection.execute(
+                            """
+                            UPDATE job_postings
+                            SET description = ?,
+                                description_status = 'enriched',
+                                description_source = 'rediscovery',
+                                description_source_url = ?,
+                                description_checked_at = CURRENT_TIMESTAMP,
+                                description_error = NULL,
+                                fit_score = NULL,
+                                fit_reason = NULL,
+                                fit_details = NULL,
+                                evaluated_at = NULL,
+                                active = 1
+                            WHERE job_id = ?;
+                            """,
+                            (candidate.description, candidate.url, existing_job_id),
+                        )
+                        result.updated += 1
+                    else:
+                        result.duplicates_skipped += 1
                 continue
 
             connection.execute(
@@ -232,11 +263,13 @@ def save_jobs(
                     active,
                     fit_score,
                     fit_reason,
+                    fit_details,
+                    evaluated_at,
                     source_board,
                     discovery_run_id,
                     keyword_score,
                     matched_keywords
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?);
                 """,
                 (
                     company_id,
@@ -246,6 +279,8 @@ def save_jobs(
                     candidate.description,
                     fit_score,
                     fit_reason,
+                    fit_details,
+                    fit_details,
                     board,
                     discovery_run_id,
                     candidate.keyword_score,

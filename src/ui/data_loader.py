@@ -55,6 +55,17 @@ COMPANY_TABLE_COLUMNS = (
     "career_page",
 )
 
+COMPANY_LIST_COLUMNS = (
+    "company_name",
+    "industry",
+    "fit_score",
+    "priority",
+    "hiring_status",
+    "career_page_status",
+    "job_search_status",
+    "jobs_found",
+)
+
 JOBS_DISPLAY_COLUMNS = (
     "company_name",
     "title",
@@ -80,11 +91,17 @@ SELECT
     j.matched_keywords,
     j.fit_score,
     j.fit_reason,
+    j.fit_details,
     j.evaluated_at,
     j.date_found,
     j.active,
     j.url,
     j.description
+    ,j.description_status
+    ,j.description_source
+    ,j.description_source_url
+    ,j.description_checked_at
+    ,j.description_error
 FROM job_postings AS j
 INNER JOIN companies AS c ON j.company_id = c.company_id
 ORDER BY j.fit_score IS NULL, j.fit_score DESC, j.keyword_score DESC, j.date_found DESC;
@@ -220,6 +237,8 @@ def load_jobs_from_db() -> pd.DataFrame:
         return empty
 
     if not frame.empty:
+        if "description" in frame.columns:
+            frame["description"] = frame["description"].where(frame["description"].notna(), None)
         if "matched_keywords" in frame.columns:
             frame["matched_keywords"] = frame["matched_keywords"].fillna("")
         if "fit_reason" in frame.columns:
@@ -419,7 +438,36 @@ def build_company_dashboard_frame() -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    return _merge_company_evaluations(frame)
+
+
+def _merge_company_evaluations(frame: pd.DataFrame) -> pd.DataFrame:
+    """Attach fit evaluation scores to the company dashboard frame."""
+    if frame.empty:
+        return frame
+
+    evaluations = load_company_evaluations_frame()
+    if evaluations.empty:
+        frame["fit_score"] = pd.NA
+        return frame
+
+    eval_subset = evaluations[
+        ["company_name", "effective_fit_score", "industry_alignment", "mission_alignment", "career_alignment", "growth_potential", "confidence"]
+    ].copy()
+    eval_subset = eval_subset.rename(columns={"effective_fit_score": "fit_score"})
+    eval_subset["company_name_key"] = eval_subset["company_name"].fillna("").str.strip().str.lower()
+    eval_subset = eval_subset.drop_duplicates(subset=["company_name_key"], keep="last")
+
+    merged = frame.copy()
+    merged["company_name_key"] = merged["company_name"].fillna("").str.strip().str.lower()
+    merged = merged.merge(
+        eval_subset.drop(columns=["company_name"]),
+        on="company_name_key",
+        how="left",
+    )
+    merged = merged.drop(columns=["company_name_key"])
+    return merged
 
 
 @st.cache_data(show_spinner=False)
@@ -502,6 +550,10 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
         "career_page_status": dash.get("career_page_status", get_career_page_status(row.get("career_page"))),
         "job_search_status": dash.get("job_search_status", ""),
         "jobs_found": dash.get("jobs_found", 0),
+        "last_raw_jobs": dash.get("last_raw_jobs", 0),
+        "last_prescreened_jobs": dash.get("last_prescreened_jobs", 0),
+        "last_triaged_jobs": dash.get("last_triaged_jobs", 0),
+        "last_enriched_jobs": dash.get("last_enriched_jobs", 0),
         "last_checked": dash.get("last_checked", ""),
         "source_id": row.get("source_id", ""),
         "source_url": clean_url(str(row.get("source_url", ""))) or "",

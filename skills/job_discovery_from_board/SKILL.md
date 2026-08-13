@@ -91,4 +91,22 @@ Per-board Playwright tuning lives in `config/job_board_sources.yaml` (`search_pa
 
 ## ATS follow-through
 
-When listings link to Greenhouse, Lever, Ashby, Workday, SmartRecruiters, or iCIMS, Python career extractors in `src/jobs/job_extractors.py` can enrich descriptions on detail fetch (future enhancement).
+Python enriches missing descriptions from authoritative posting pages and
+employer career pages before saving, within the configured fetch budget. It
+does not scrape LinkedIn detail pages; LinkedIn listings are resolved against
+the employer's career page when possible.
+
+Repair existing jobs with the same enrichment service:
+
+```bash
+python -m src.jobs.enrich_missing_descriptions --dry-run
+python -m src.jobs.enrich_missing_descriptions --limit 25
+python -m src.jobs.enrich_missing_descriptions --only-review-inbox
+python -m src.jobs.enrich_missing_descriptions --only-review-inbox --retry-failed
+python -m src.jobs.enrich_missing_descriptions --only-tracked --retry-failed
+python -m src.jobs.enrich_missing_descriptions --mark-expired <job_id>
+```
+
+LinkedIn and Eluta detail pages use the configured Playwright browser by
+default. Pass `--no-browser` only for HTTP/employer-site enrichment. Browser
+blocks and navigation failures are stored as retryable `error` results.

@@ -29,7 +29,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--no-ats-enrich",
         action="store_true",
-        help="Skip ATS description enrichment for board listings.",
+        help="Skip authoritative description enrichment for board listings.",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging.")
     return parser

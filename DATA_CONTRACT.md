@@ -43,6 +43,8 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 | `data/staging/runs/<run_id>/calibration.json` | JSON object | `CalibrationFile` — user score corrections and preference themes |
 | `data/staging/job_candidates_<run_id>.json` | JSON array | `JobCandidate` |
 | `data/staging/job_evaluations_<run_id>.json` | JSON array | `JobFitResult` |
+| `data/staging/resume_requests/<request_id>.json` | JSON object | Resume bridge request v1 |
+| `data/staging/resume_results/<request_id>.json` | JSON object | Resume bridge result v1 |
 | `data/events/event_log.jsonl` | JSONL | Orchestration events (Python write) |
 | `data/source_evidence/<run_id>/` | HTML, JSON, screenshots | Unstructured evidence |
 
@@ -76,6 +78,20 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 | `reports/job_fit/<slug>_<timestamp>.md` | Markdown evaluation report |
 
 Agents may write report drafts; Python merge may copy validated JSON fields into CSV.
+
+### Resume bridge request/result
+
+`src/integrations/resume_pipeline.py` writes a request containing the job ID,
+company, role, stored description, source URL, and cover-letter flag. The
+sibling resume-generation pipeline returns status, warnings, a short agent
+summary, and absolute artifact paths. Resume evidence remains owned by the
+resume pipeline; this repository stores only orchestration records and paths.
+
+Obsidian clippings flow in the opposite direction through
+`python3 -m src.integrations.obsidian_jobs`. The importer reads `Clippings/*.md`,
+deduplicates by normalized URL or normalized company/title, stores the complete
+clipping as a verified description, and clears stale scoring so the standard
+job-fit evaluation and merge workflow processes the job again.
 
 ## Schemas
 
@@ -174,11 +190,37 @@ Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jo
 | `active` | bool/int | Default 1 |
 | `fit_score` | float | **Agent evaluation only** (NULL until evaluated) |
 | `fit_reason` | string | Agent evaluation summary |
+| `fit_details` | JSON string | Full structured `JobFitResult` for dashboard display |
 | `source_board` | string | e.g. `jobbank`, `indeed_ca` |
 | `discovery_run_id` | string | Board discovery run id |
 | `keyword_score` | float 0–1 | Prescreen from `filter_jobs` |
 | `matched_keywords` | JSON string | Keyword list |
 | `evaluated_at` | iso datetime | Set when agent fit merge completes |
+| `description_status` | string | `enriched`, `not_found`, `error`, or `expired` |
+| `description_source` | string | Provenance category, never generated content |
+| `description_source_url` | string | Authoritative page used for enrichment |
+| `description_checked_at` | iso datetime | Latest enrichment attempt |
+| `description_error` | string | Failure or expiration reason |
+
+### SQLite `employer_ats_sources` row (canonical)
+
+Python-owned registry of employer-specific Greenhouse, Lever, Ashby, and
+Workday boards. Sources are discovered from company career pages and existing
+posting URLs, then used by `src.jobs.run_employer_ats_discovery`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `ats_source_id` | int | Auto |
+| `company_id` | int | FK → `companies` |
+| `provider` | string | `greenhouse`, `lever`, `ashby`, or `workday` |
+| `board_url` | string | Canonical employer board URL |
+| `board_token` | string | Provider-specific tenant/board identifier |
+| `enabled` | bool/int | Whether scheduled discovery should run |
+| `discovery_method` | string | `career_page` or `existing_job_url` |
+| `status` | string | `not_run`, `healthy`, `empty`, or `error` |
+| `last_checked_at` | datetime | Latest source run |
+| `last_success_at` | datetime | Latest run returning jobs |
+| `last_error` | string | Latest adapter error |
 
 ### SQLite `tracked_jobs` row (user workflow)
 
@@ -194,6 +236,63 @@ User-owned application pipeline state. Python CRUD only (`src/database/tracked_j
 | `created_at` | iso datetime | |
 | `updated_at` | iso datetime | |
 
+### SQLite `job_reviews` row (user workflow)
+
+Persistent decisions from the dashboard's quick-review inbox. Python CRUD only
+(`src/database/job_reviews.py`); not written by agents.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `review_id` | int | Auto |
+| `job_id` | int | FK → `job_postings`, unique |
+| `decision` | string | `maybe`, `declined`, or `accepted` |
+| `reviewed_at` | iso datetime | First decision time |
+| `updated_at` | iso datetime | Latest decision time |
+
+### SQLite `application_preparation_steps` row (user workflow)
+
+Persistent, inspectable work items created when a tracked job enters the
+`applying` stage. Python CRUD only (`src/database/application_preparation.py`).
+Agent-produced content may be stored through that module after user review.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `step_id` | int | Auto |
+| `job_id` | int | FK → `job_postings` |
+| `step_key` | string | Stable step identifier; unique per job |
+| `title` | string | User-facing step name |
+| `position` | int | Linear display order |
+| `status` | string | `pending`, `in_progress`, `complete`, or `not_required` |
+| `details` | string | Inspectable agent output or reviewed inputs |
+| `updated_at` | iso datetime | Latest change time |
+
+### SQLite application automation records
+
+Python-owned local records supporting assisted form filling:
+
+- `application_facts`: reusable, user-confirmed questionnaire facts with source
+  provenance. Agents must not infer or silently create facts.
+- `application_audit_events`: append-only field/action outcomes; event details
+  contain keys and statuses, not copied sensitive values.
+- `application_fields.disposition`: `pending`, `provided`, `skipped`,
+  `not_applicable`, or `human_required`.
+- `application_fields.validation_error`: latest provider-side validation message.
+- `application_sessions.automation_class`: `automatable`, `assisted`, or
+  `manual`. Final submission always remains human-controlled.
+- `application_submissions`: immutable JSON snapshots created only after the
+  user confirms an external submission. Each captures reviewed contact fields,
+  document paths and dispositions, and saved questionnaire facts; the same
+  transaction moves the tracked job to `applied`.
+
+### SQLite application workspace (user workflow)
+
+`application_sessions` stores the employer application URL, detected provider,
+current page, inspection state, and human gates such as account creation,
+privacy consent, and CAPTCHA. `application_fields` stores detected editable
+requirements grouped by contact details, resume, cover letter, additional
+documents, and questions. Python CRUD owns both tables. Final submission is
+never inferred from a completed preparation checklist.
+
 ### JobFitResult (job evaluation staging)
 
 ```json
@@ -202,6 +301,15 @@ User-owned application pipeline state. Python CRUD only (`src/database/tracked_j
   "job_title": "Machine Learning Scientist",
   "company_name": "Example Bio Inc",
   "fit_score": 8.0,
+  "salary": null,
+  "seniority": "Mid-level",
+  "employment_type": "Full-time",
+  "role_summary": ["Build and validate healthcare ML systems"],
+  "job_requirements": ["Graduate degree", "2+ years relevant experience"],
+  "preferred_qualifications": ["Healthcare ML experience"],
+  "qualification_assessment": [
+    {"requirement": "Graduate degree", "status": "match", "evidence": "Confirmed PhD", "preferred": false}
+  ],
   "skills_match": ["Python", "PyTorch"],
   "skill_gaps": ["clinical trials"],
   "recommended_actions": ["Highlight Mila postdoc"],

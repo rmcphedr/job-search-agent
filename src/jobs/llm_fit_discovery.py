@@ -53,6 +53,7 @@ def apply_llm_fit_scores(
             job.model_copy(
                 update={
                     "llm_fit_score": result.fit_score,
+                    "fit_details": result.model_dump_json(),
                     "notes": combined_notes,
                 }
             )

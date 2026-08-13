@@ -1,7 +1,7 @@
 <!-- GENERATED FILE — DO NOT EDIT MANUALLY.
 Source: resume-generation-pipeline/personal/master-profile.md
-Source SHA-256: 04db05c382c37017e42d85e4a06f3fa45e93e00a193cd1eaca1a1439ee46f655
-Synchronized at: 2026-08-05T15:06:53+00:00
+Source SHA-256: d95df93fc316b7c48762fbae087625ab4db081c84100204e27b8c9ded5ad515f
+Synchronized at: 2026-08-11T15:00:55+00:00
 Regenerate with: python3 -m src.profile.master_profile
 -->
 
@@ -179,6 +179,17 @@ Claims requiring confirmation before external use:
 - Implemented spectral feature engineering, CNN architectures, model evaluation, Optuna hyperparameter optimization, and explainability with SHAP and Captum.
 - Uses Python, PyTorch, scikit-learn, MNE-Python, Optuna, SHAP, Captum, and Git.
 
+### Honours Research — CRISPR-Cas9 Neuronal Transdifferentiation
+
+**Institution:** Simon Fraser University  
+**Program:** BSc (Honours), Molecular Biology & Biochemistry
+
+- Maintained patient-derived fibroblast cultures as part of an honours research project.
+- Used a CRISPR-Cas9 system in an attempt to transdifferentiate patient-derived fibroblasts into neurons.
+- The project aimed to establish patient-derived neuronal cultures for studying a patient population.
+- Provides confirmed experience in mammalian cell culture, patient-derived fibroblast culture, CRISPR-Cas9, and neuronal transdifferentiation research.
+- Do not describe neuronal conversion as successful unless validation is separately confirmed.
+
 ### Emergency Department Clinical Decision Support System
 
 **Role:** Team Member / Developer  
@@ -252,6 +263,8 @@ Claims requiring confirmation before external use:
 - Molecular cloning, mRNA synthesis and purification, Xenopus microinjection
 - Immunohistochemistry, fluorescence microscopy, two-photon imaging
 - Patch-clamp electrophysiology, CRISPR, and behavioral experimentation
+- Mammalian cell culture and patient-derived fibroblast culture
+- CRISPR-Cas9 neuronal transdifferentiation research using patient-derived fibroblasts
 
 ### Visualization, software, and infrastructure
 

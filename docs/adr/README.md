@@ -59,6 +59,12 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-012](ADR-012-synchronized-master-profile.md) | Synchronized master career profile | Accepted |
 | [ADR-013](ADR-013-job-evaluation-sqlite-merge.md) | Job evaluation SQLite merge | Accepted |
 | [ADR-014](ADR-014-employer-ats-adapters.md) | API-first employer ATS adapters | Accepted |
+| [ADR-015](ADR-015-employer-ats-source-registry.md) | Employer ATS source registry | Accepted |
+| [ADR-015](ADR-015-quick-review-persistence.md) | Quick-review decisions in SQLite | Accepted |
+| [ADR-016](ADR-016-application-preparation-checklist.md) | Persistent application preparation checklist | Accepted |
+| [ADR-017](ADR-017-resume-pipeline-bridge.md) | Resume pipeline request/result bridge | Accepted |
+| [ADR-018](ADR-018-job-description-enrichment.md) | Shared job-description enrichment and expiration | Accepted |
+| [ADR-019](ADR-019-human-reviewed-application-agent.md) | Human-reviewed application agent | Accepted |
 
 ## Related documents
 

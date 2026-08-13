@@ -218,6 +218,7 @@ def build_other_source_rows() -> pd.DataFrame:
     """Jobs from sources not in the board catalog (career pages, unmapped boards)."""
     config = load_board_sources_config()
     known_ids = {board.source_id for board in config.boards}
+    known_ids.update({"greenhouse", "lever", "ashby", "workday"})
     job_counts = load_job_counts_by_source()
 
     rows: list[dict[str, object]] = []
@@ -254,6 +255,63 @@ def build_other_source_rows() -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows)
+
+
+def build_employer_ats_source_frame() -> pd.DataFrame:
+    """Aggregate registered employer ATS sources and stored jobs by provider."""
+    connection = get_connection()
+    try:
+        from src.database.migrate import apply_migrations
+
+        apply_migrations(connection)
+        connection.commit()
+        rows = connection.execute(
+            """
+            SELECT
+                s.provider,
+                COUNT(*) AS employers,
+                SUM(CASE WHEN s.enabled = 1 THEN 1 ELSE 0 END) AS enabled_sources,
+                SUM(CASE WHEN s.status = 'healthy' THEN 1 ELSE 0 END) AS healthy_sources,
+                SUM(CASE WHEN s.status = 'error' THEN 1 ELSE 0 END) AS error_sources,
+                MAX(s.last_checked_at) AS last_checked_at,
+                MAX(s.last_success_at) AS last_success_at,
+                GROUP_CONCAT(DISTINCT c.company_name) AS companies
+            FROM employer_ats_sources s
+            JOIN companies c ON c.company_id = s.company_id
+            GROUP BY s.provider
+            ORDER BY s.provider;
+            """
+        ).fetchall()
+        job_rows = connection.execute(
+            """SELECT source_board, COUNT(*) total,
+                      SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) active
+               FROM job_postings
+               WHERE source_board IN ('greenhouse', 'lever', 'ashby', 'workday')
+               GROUP BY source_board;"""
+        ).fetchall()
+    finally:
+        connection.close()
+    job_counts = {
+        str(row["source_board"]): (int(row["total"]), int(row["active"]))
+        for row in job_rows
+    }
+    return pd.DataFrame(
+        [
+            {
+                "provider": str(row["provider"]),
+                "employers": int(row["employers"]),
+                "enabled_sources": int(row["enabled_sources"]),
+                "healthy_sources": int(row["healthy_sources"]),
+                "error_sources": int(row["error_sources"]),
+                "jobs_total": job_counts.get(str(row["provider"]), (0, 0))[0],
+                "jobs_active": job_counts.get(str(row["provider"]), (0, 0))[1],
+                "last_checked_at": row["last_checked_at"],
+                "last_success_at": row["last_success_at"],
+                "companies": row["companies"] or "",
+            }
+            for row in rows
+        ]
+    )
 
 
 def build_board_health_summary(frame: pd.DataFrame) -> dict[str, int]:

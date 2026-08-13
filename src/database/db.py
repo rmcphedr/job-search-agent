@@ -17,6 +17,14 @@ KNOWN_TABLES = (
     "company_profiles",
     "job_postings",
     "tracked_jobs",
+    "job_reviews",
+    "application_preparation_steps",
+    "application_sessions",
+    "application_fields",
+    "application_facts",
+    "application_audit_events",
+    "application_submissions",
+    "employer_ats_sources",
     "runs",
 )
 

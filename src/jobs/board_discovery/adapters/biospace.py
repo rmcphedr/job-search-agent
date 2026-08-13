@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
 
 from src.jobs.board_discovery.config import BoardSource
@@ -39,7 +41,8 @@ class BiospaceAdapter:
                 html, final_url = client.get_with_url(search_url, params=params)
             except Exception:
                 break
-            page_base = final_url.split("/jobs")[0] if "/jobs" in final_url else base
+            parsed = urlparse(final_url)
+            page_base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base
             page_candidates = self._parse_listing(
                 html,
                 source=source,

@@ -9,6 +9,7 @@ import streamlit as st
 from src.jobs.board_health import (
     build_board_health_frame,
     build_board_health_summary,
+    build_employer_ats_source_frame,
     build_other_source_rows,
     load_board_discovery_runs,
     parse_board_run_notes,
@@ -45,11 +46,12 @@ BOARD_DISPLAY_COLUMNS = (
 
 
 @st.cache_data(show_spinner=False)
-def _load_board_health_data() -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+def _load_board_health_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     frame = build_board_health_frame()
+    ats = build_employer_ats_source_frame()
     other = build_other_source_rows()
     summary = build_board_health_summary(frame)
-    return frame, other, summary
+    return frame, ats, other, summary
 
 
 def render_board_sources_view() -> None:
@@ -63,12 +65,12 @@ def render_board_sources_view() -> None:
     )
 
     try:
-        frame, other_sources, summary = _load_board_health_data()
+        frame, ats_sources, other_sources, summary = _load_board_health_data()
     except Exception as exc:
         st.error(f"Failed to load board source data: {exc}")
         return
 
-    _render_summary_metrics(summary, other_sources)
+    _render_summary_metrics(summary, ats_sources, other_sources)
 
     if frame.empty:
         st.warning("No boards configured.")
@@ -98,6 +100,19 @@ def render_board_sources_view() -> None:
         },
     )
 
+    st.subheader("Employer ATS sources")
+    st.caption(
+        "Employer-specific Greenhouse, Lever, Ashby, and Workday boards discovered "
+        "from company career pages and known posting URLs."
+    )
+    if ats_sources.empty:
+        st.info(
+            "No employer ATS sources registered yet. Run "
+            "`python -m src.jobs.run_employer_ats_discovery --dry-run` to preview."
+        )
+    else:
+        st.dataframe(ats_sources, width="stretch", hide_index=True)
+
     if not other_sources.empty:
         st.subheader("Other job sources")
         st.dataframe(other_sources, width="stretch", hide_index=True)
@@ -105,15 +120,18 @@ def render_board_sources_view() -> None:
     _render_recent_runs()
 
 
-def _render_summary_metrics(summary: dict[str, int], other_sources: pd.DataFrame) -> None:
+def _render_summary_metrics(
+    summary: dict[str, int], ats_sources: pd.DataFrame, other_sources: pd.DataFrame
+) -> None:
     other_jobs = int(other_sources["jobs_total"].sum()) if not other_sources.empty else 0
+    ats_employers = int(ats_sources["employers"].sum()) if not ats_sources.empty else 0
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Boards configured", summary["total_boards"])
     col2.metric("Enabled", summary["enabled_boards"])
     col3.metric("Healthy", summary["healthy_boards"])
     col4.metric("Warning / error", summary["warning_boards"] + summary["error_boards"])
     col5.metric("Board jobs", summary["total_board_jobs"])
-    col6.metric("Other source jobs", other_jobs)
+    col6.metric("ATS employers / other jobs", f"{ats_employers} / {other_jobs}")
 
 
 def _prepare_display_frame(frame: pd.DataFrame) -> pd.DataFrame:

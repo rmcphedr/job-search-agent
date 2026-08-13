@@ -129,7 +129,7 @@ Python aggregates scores and produces a shortlist. Agents may propose rank adjus
 |-------|---------|
 | [hermes_orchestrator/SKILL.md](skills/hermes_orchestrator/SKILL.md) | Event-driven discovery + evaluation orchestration |
 | [job_discovery_from_board/SKILL.md](skills/job_discovery_from_board/SKILL.md) | Board job discovery (Python CLI + staging) |
-| [resume_tailoring/SKILL.md](skills/resume_tailoring/SKILL.md) | Placeholder — not implemented |
+| [resume_tailoring/SKILL.md](skills/resume_tailoring/SKILL.md) | Bridge to the sibling resume-generation pipeline |
 
 ## Python module map (preserve — do not delete)
 

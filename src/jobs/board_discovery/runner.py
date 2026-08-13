@@ -127,7 +127,9 @@ def run_board_discovery(
     max_pages = int(defaults.get("max_pages_per_query", 3))
     delay_ms = int(defaults.get("request_delay_ms", 1500))
     min_keyword_score = float(defaults.get("min_keyword_score", discovery_config.prescreen.min_keyword_score))
-    max_ats_enrich = int(defaults.get("max_ats_enrichments", 10))
+    max_ats_enrich = int(
+        defaults.get("max_description_enrichments", defaults.get("max_ats_enrichments", 10))
+    )
 
     boards = get_enabled_boards(config, board_ids=board_ids, phase=phase)
     if boards_need_playwright(boards) and not playwright_available():
@@ -193,7 +195,21 @@ def run_board_discovery(
     summary.jobs_after_filter = len(filtered)
 
     if enrich_ats and filtered:
-        filtered = enrich_ats_job_descriptions(filtered, max_enrichments=max_ats_enrich)
+        needs_rendered_enrichment = any(
+            str(candidate.provider or "").casefold() in {"linkedin", "eluta"}
+            for candidate in filtered[:max_ats_enrich]
+        )
+        enrichment_context = (
+            PlaywrightBrowserClient(delay_ms=delay_ms)
+            if needs_rendered_enrichment
+            else nullcontext()
+        )
+        with enrichment_context as enrichment_browser:
+            filtered = enrich_ats_job_descriptions(
+                filtered,
+                max_enrichments=max_ats_enrich,
+                browser=enrichment_browser,
+            )
 
     if dry_run:
         summary.inserted = 0

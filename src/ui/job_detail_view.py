@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import streamlit as st
 
@@ -83,6 +85,8 @@ def render_job_detail_view(job_id: int | str | None = None) -> None:
     else:
         st.info("No description stored for this job.")
 
+    _render_fit_evaluation(job)
+
     _render_tracking_panel(int(target_id), job)
 
     st.subheader("Coming Soon")
@@ -93,6 +97,35 @@ def render_job_detail_view(job_id: int | str | None = None) -> None:
         st.button("Generate Cover Letter", disabled=True, help="Coming soon", width="stretch")
     with future_col3:
         st.button("Auto-fill Application", disabled=True, help="Coming soon", width="stretch")
+
+
+def _parse_fit_details(value: object) -> dict:
+    if isinstance(value, dict):
+        return value
+    try:
+        parsed = json.loads(str(value or ""))
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _render_fit_evaluation(job: dict) -> None:
+    details = _parse_fit_details(job.get("fit_details"))
+    st.subheader("Fit evaluation")
+    if not details:
+        st.info("Pending evaluation. A verified full description is required before scoring.")
+        return
+    summary = str(details.get("why_fit") or job.get("fit_reason") or "").strip()
+    if summary:
+        st.write(summary)
+    for label, key in (("Role summary", "role_summary"), ("Matching skills", "skills_match"),
+                       ("Skill gaps", "skill_gaps"), ("Concerns", "concerns"),
+                       ("Recommended actions", "recommended_actions")):
+        values = details.get(key)
+        if isinstance(values, list) and values:
+            st.markdown(f"**{label}**")
+            for value in values:
+                st.markdown(f"- {value}")
 
 
 def _render_tracking_panel(job_id: int, job: dict) -> None:

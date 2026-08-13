@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 
 from src.database.db import get_connection
+from src.database.migrate import apply_migrations
 from src.discovery.models import CompanyCandidate
 from src.discovery.update_inventory import get_inventory_path, update_inventory
 from src.llm.schemas import CompanyFitResult, JobFitResult
@@ -355,10 +356,11 @@ def merge_job_evaluation_file(path: Path, *, emit_events: bool = True) -> MergeR
 
     connection = get_connection()
     try:
+        apply_migrations(connection)
         for record in records:
             row = connection.execute(
                 """
-                SELECT j.title, c.company_name
+                SELECT j.title, c.company_name, j.description_status, j.description_checked_at
                 FROM job_postings AS j
                 JOIN companies AS c ON c.company_id = j.company_id
                 WHERE j.job_id = ? AND j.active = 1;
@@ -376,6 +378,10 @@ def merge_job_evaluation_file(path: Path, *, emit_events: bool = True) -> MergeR
                 errors.append(
                     f"job_id={record.job_id} company mismatch: database={row['company_name']!r}, evaluation={record.company_name!r}"
                 )
+            if row["description_status"] != "enriched" or not row["description_checked_at"]:
+                errors.append(
+                    f"job_id={record.job_id} must have a current verified description before evaluation"
+                )
 
         if errors:
             return MergeResult(success=False, action="reject", run_id=run_id, errors=errors)
@@ -384,10 +390,15 @@ def merge_job_evaluation_file(path: Path, *, emit_events: bool = True) -> MergeR
             connection.execute(
                 """
                 UPDATE job_postings
-                SET fit_score = ?, fit_reason = ?, evaluated_at = datetime('now')
+                SET fit_score = ?, fit_reason = ?, fit_details = ?, evaluated_at = datetime('now')
                 WHERE job_id = ?;
                 """,
-                (record.fit_score, record.why_fit, record.job_id),
+                (
+                    record.fit_score,
+                    record.why_fit,
+                    record.model_dump_json(),
+                    record.job_id,
+                ),
             )
         connection.commit()
     except Exception:

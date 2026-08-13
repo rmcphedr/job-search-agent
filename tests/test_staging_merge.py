@@ -243,10 +243,14 @@ def test_merge_job_evaluation_updates_sqlite(temp_project):
             active INTEGER DEFAULT 1,
             fit_score REAL,
             fit_reason TEXT,
-            evaluated_at TEXT
+            fit_details TEXT,
+            evaluated_at TEXT,
+            description_status TEXT,
+            description_checked_at TEXT
         );
         INSERT INTO companies (company_id, company_name) VALUES (1, 'Acme Health AI');
-        INSERT INTO job_postings (job_id, company_id, title) VALUES (42, 1, 'ML Scientist');
+        INSERT INTO job_postings (job_id, company_id, title, description_status, description_checked_at)
+        VALUES (42, 1, 'ML Scientist', 'enriched', CURRENT_TIMESTAMP);
         """
     )
     connection.commit()
@@ -279,11 +283,12 @@ def test_merge_job_evaluation_updates_sqlite(temp_project):
     assert result.records_merged == 1
     connection = get_connection()
     row = connection.execute(
-        "SELECT fit_score, fit_reason, evaluated_at FROM job_postings WHERE job_id = 42"
+        "SELECT fit_score, fit_reason, fit_details, evaluated_at FROM job_postings WHERE job_id = 42"
     ).fetchone()
     connection.close()
     assert row["fit_score"] == 8.2
     assert row["fit_reason"] == "Strong healthcare ML alignment."
+    assert json.loads(row["fit_details"])["skills_match"] == ["Python"]
     assert row["evaluated_at"] is not None
 
 
