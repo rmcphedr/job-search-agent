@@ -32,7 +32,7 @@ def _print_candidate(index: int, candidate: CompanyCandidate) -> None:
     print(f"    notes preview:   {_notes_preview(candidate.notes)}")
 
 
-def test_source(source_id: str, limit: int | None = None, write: bool = False) -> None:
+def run_source_test(source_id: str, limit: int | None = None, write: bool = False) -> None:
     sources = load_directory_sources(source_id=source_id)
     source = sources[0]
 
@@ -103,7 +103,7 @@ def main() -> None:
     )
 
     try:
-        test_source(args.source_id, limit=args.limit, write=args.write)
+        run_source_test(args.source_id, limit=args.limit, write=args.write)
     except (FileNotFoundError, ValueError, RuntimeError) as exc:
         raise SystemExit(f"Test failed: {exc}") from exc
 

@@ -80,13 +80,14 @@ def save_inspection(job_id: int, inspection: ApplicationInspection) -> None:
                 f"DELETE FROM application_fields WHERE job_id = ? AND field_key NOT IN ({placeholders}) AND COALESCE(value, '') = '';",
                 (job_id, *keys),
             )
+        record_application_event(
+            "inspection_saved", job_id=job_id, provider=inspection.provider,
+            details={"field_count": len(inspection.fields), "automation_class": automation_class},
+            connection=connection,
+        )
         connection.commit()
     finally:
         connection.close()
-    record_application_event(
-        "inspection_saved", job_id=job_id, provider=inspection.provider,
-        details={"field_count": len(inspection.fields), "automation_class": automation_class},
-    )
 
 
 def get_application_workspace(job_id: int) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -120,13 +121,13 @@ def update_application_field(job_id: int, field_key: str, value: str) -> None:
             """,
             (value, value, value, _now(), job_id, field_key),
         )
+        record_application_event(
+            "field_reviewed", job_id=job_id, target_key=field_key,
+            details={"provided": bool(value.strip())}, connection=connection,
+        )
         connection.commit()
     finally:
         connection.close()
-    record_application_event(
-        "field_reviewed", job_id=job_id, target_key=field_key,
-        details={"provided": bool(value.strip())},
-    )
 
 
 def prefill_from_master_profile(job_id: int, profile_path="user/master_cv.md") -> int:
