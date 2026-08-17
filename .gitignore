@@ -17,6 +17,9 @@ env/
 .vscode/
 .idea/
 
+# Local feature worktrees
+.worktrees/
+
 # Databases
 *.db
 *.sqlite
