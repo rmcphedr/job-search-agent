@@ -21,8 +21,10 @@ validate, merge, and own canonical state.
 
 Use a Python-owned SQLite queue with one current item per job. Discovery and
 description lifecycle code create or transition queue items. A Codex worker
-claims leased batches, stages `JobFitResult` output, and completes work only
-through the existing validated SQLite merge.
+claims leased batches, submits `JobFitResult` objects through a synchronous
+Python validation-and-commit interface, and completes work only through the
+existing validated SQLite merge. The interface may retain staging JSON for
+auditability; agents do not issue arbitrary SQL.
 
 Use `gpt-5.6-terra` with low reasoning for normal job evaluation. Escalate an
 individual job to medium reasoning only for configured uncertainty or validation

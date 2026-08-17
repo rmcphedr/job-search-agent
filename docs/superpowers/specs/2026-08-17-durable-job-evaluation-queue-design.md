@@ -30,7 +30,9 @@ measurements from estimates.
 ## Non-goals
 
 - Making Ollama the primary or automatic evaluator.
-- Allowing agents to write canonical SQLite evaluation fields directly.
+- Allowing agents to execute arbitrary canonical SQLite writes. Agents may
+  submit structured evaluations through a synchronous Python
+  validation-and-commit interface without manually managing staging files.
 - Starting or controlling Codex agents from the Streamlit process.
 - Treating estimated tokens or subscription quota as exact API billing.
 - Building a general-purpose workflow engine for unrelated project tasks.
@@ -67,10 +69,12 @@ the shared candidate profile once and the claimed job records, including exact
 `job_id`, title, company, location, and verified description.
 
 The Codex orchestration skill consumes the packet, evaluates the batch, and
-writes `JobFitResult` JSON to `data/staging/`. The existing deterministic merger
-validates job identity and description currency before updating SQLite. A
-successful merge marks the matching queue item completed. Agents never update
-the queue or canonical job row directly.
+submits `JobFitResult` objects through a synchronous Python interface. That
+interface may retain staging JSON as audit evidence, then invokes the existing
+deterministic validation and merge behavior. It verifies job identity and
+description currency before updating SQLite, and a successful transaction marks
+the matching queue item completed. Agents never issue arbitrary SQL or bypass
+the validation boundary.
 
 Normal evaluation uses `gpt-5.6-terra` with low reasoning. A result escalates
 individually to medium reasoning only when output validation fails, confidence
