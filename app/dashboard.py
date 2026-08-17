@@ -16,6 +16,7 @@ from src.ui.board_sources_view import render_board_sources_view
 from src.ui.company_view import render_company_view
 from src.ui.data_loader import global_search
 from src.ui.jobs_view import render_jobs_view
+from src.ui.operations_view import render_operations_view
 from src.ui.profile_view import render_profile_view
 from src.ui.review_view import render_review_view
 from src.ui.session_utils import (
@@ -34,6 +35,7 @@ PAGES = {
     "Jobs": render_jobs_view,
     "Board Sources": render_board_sources_view,
     "Analytics": render_analytics_view,
+    "Operations": render_operations_view,
     "Profile / Settings": render_profile_view,
 }
 
