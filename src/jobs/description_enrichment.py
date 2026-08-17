@@ -18,6 +18,7 @@ from src.database.import_inventory import get_inventory_path
 from src.database.migrate import apply_migrations
 from src.jobs.job_detail_parsers import parse_job_detail_from_html
 from src.jobs.job_extractors import extract_jobs_from_career_page, fetch_page
+from src.orchestration.job_evaluation_queue import cancel_job, sync_job_eligibility
 from src.jobs.job_url_utils import is_valid_http_url, normalize_job_url
 
 LINKEDIN_DOMAINS = frozenset({"linkedin.com", "ca.linkedin.com", "www.linkedin.com"})
@@ -286,7 +287,16 @@ def apply_enrichment_result(job_id: int, result: DescriptionEnrichmentResult) ->
                 """,
                 (job_id,),
             )
+            sync_job_eligibility(
+                job_id,
+                description_ready=True,
+                reactivate=True,
+                connection=connection,
+            )
+        elif result.status == "enriched":
+            sync_job_eligibility(job_id, description_ready=True, connection=connection)
         if result.status == "expired":
+            cancel_job(job_id, "job_expired", connection=connection)
             connection.execute(
                 """
                 UPDATE tracked_jobs
@@ -327,6 +337,7 @@ def mark_job_duplicate(job_id: int, canonical_job_id: int) -> None:
             """,
             (f"Duplicate of job_id={canonical_job_id}", _utc_now(), job_id),
         )
+        cancel_job(job_id, "job_duplicate", connection=connection)
         connection.commit()
     finally:
         connection.close()

@@ -11,6 +11,7 @@ from src.database.db import get_connection
 from src.database.migrate import apply_migrations
 from src.jobs.job_models import JobCandidate
 from src.jobs.job_url_utils import compute_content_hash, normalize_job_url
+from src.orchestration.job_evaluation_queue import enqueue_job, sync_job_eligibility
 
 
 @dataclass
@@ -247,12 +248,18 @@ def save_jobs(
                             """,
                             (candidate.description, candidate.url, existing_job_id),
                         )
+                        sync_job_eligibility(
+                            existing_job_id,
+                            description_ready=True,
+                            reactivate=True,
+                            connection=connection,
+                        )
                         result.updated += 1
                     else:
                         result.duplicates_skipped += 1
                 continue
 
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO job_postings (
                     company_id,
@@ -268,8 +275,12 @@ def save_jobs(
                     source_board,
                     discovery_run_id,
                     keyword_score,
-                    matched_keywords
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?);
+                    matched_keywords,
+                    description_status,
+                    description_source,
+                    description_source_url,
+                    description_checked_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END);
                 """,
                 (
                     company_id,
@@ -285,7 +296,16 @@ def save_jobs(
                     discovery_run_id,
                     candidate.keyword_score,
                     matched_keywords_json,
+                    "enriched" if candidate.description else None,
+                    "discovery" if candidate.description else None,
+                    candidate.url if candidate.description else None,
+                    candidate.description,
                 ),
+            )
+            enqueue_job(
+                int(cursor.lastrowid),
+                description_ready=bool(candidate.description),
+                connection=connection,
             )
             result.inserted += 1
 
