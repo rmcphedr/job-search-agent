@@ -60,3 +60,4 @@ def test_submission_atomically_completes_claimed_job(tmp_path) -> None:
     assert result.completed == 1
     assert connection.execute("SELECT fit_score FROM job_postings WHERE job_id=1").fetchone()[0] == 8
     assert connection.execute("SELECT status FROM job_evaluation_queue WHERE job_id=1").fetchone()[0] == "completed"
+    assert connection.execute("SELECT status FROM job_evaluation_runs WHERE run_id='run-1'").fetchone()[0] == "completed"

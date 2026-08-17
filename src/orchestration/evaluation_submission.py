@@ -16,6 +16,25 @@ class SubmissionResult:
     needs_escalation: list[int]
 
 
+def reconcile_run_completion(run_id: str, *, connection=None) -> bool:
+    """Mark a run complete when all claimed work was submitted."""
+    owned = connection is None
+    conn = connection or get_connection()
+    try:
+        cursor = conn.execute(
+            """UPDATE job_evaluation_runs SET status='completed', completed_at=CURRENT_TIMESTAMP
+               WHERE run_id=? AND status='running' AND jobs_attempted > 0
+                 AND jobs_completed >= jobs_attempted""",
+            (run_id,),
+        )
+        if owned:
+            conn.commit()
+        return cursor.rowcount == 1
+    finally:
+        if owned:
+            conn.close()
+
+
 def submit_job_evaluations(run_id: str, queue_ids: list[int], payload: list[dict], *, model: str,
                            reasoning_effort: str, input_tokens: int | None = None,
                            output_tokens: int | None = None, usage_provenance: str = "unavailable",
@@ -54,8 +73,14 @@ def submit_job_evaluations(run_id: str, queue_ids: list[int], payload: list[dict
                 (run_id,queue_id,job_id,model,reasoning_effort,status,completed_at,input_tokens,output_tokens,usage_provenance,validation_outcome)
                 VALUES (?,?,?,?,?,'completed',CURRENT_TIMESTAMP,?,?,?,'valid')""",
                 (run_id, queue_id, record.job_id, model, reasoning_effort, input_tokens, output_tokens, usage_provenance))
-        conn.execute("UPDATE job_evaluation_runs SET jobs_completed=jobs_completed+?,output_tokens=coalesce(output_tokens,0)+? WHERE run_id=?",
-                     (len(validated), output_tokens or 0, run_id))
+        conn.execute(
+            """UPDATE job_evaluation_runs
+               SET jobs_completed=jobs_completed+?, output_tokens=coalesce(output_tokens,0)+?,
+                   status=CASE WHEN jobs_completed+? >= jobs_attempted AND ?=0 THEN 'completed' ELSE status END,
+                   completed_at=CASE WHEN jobs_completed+? >= jobs_attempted AND ?=0 THEN CURRENT_TIMESTAMP ELSE completed_at END
+               WHERE run_id=?""",
+            (len(validated), output_tokens or 0, len(validated), len(escalations), len(validated), len(escalations), run_id),
+        )
         if owned:
             conn.commit()
         return SubmissionResult(len(validated), escalations)
