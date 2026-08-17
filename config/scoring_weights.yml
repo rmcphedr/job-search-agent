@@ -1,0 +1,43 @@
+# Fit scoring weights for ranking (agent-facing).
+# Python keyword scorer uses config/scoring.yaml — keep both in sync.
+
+weights:
+  domain_fit: 0.30
+  ml_fit: 0.25
+  healthcare_biotech_fit: 0.20
+  location_fit: 0.15
+  hiring_signal: 0.10
+
+# LLM / agent evaluation dimensions (company fit)
+company_fit_dimensions:
+  industry_alignment: 0.20
+  mission_alignment: 0.30
+  career_alignment: 0.30
+  growth_potential: 0.20
+
+# Composite ranking (MVP shortlist)
+shortlist:
+  company_weight: 0.35
+  job_weight: 0.65
+  min_combined_score: 6.5
+
+target_locations:
+  - Montreal
+  - Toronto
+  - Vancouver
+  - Canada
+  - Remote
+
+target_keywords:
+  - machine learning
+  - artificial intelligence
+  - AI
+  - neuroscience
+  - neurotechnology
+  - healthcare
+  - biotech
+  - bioinformatics
+  - computational biology
+  - medical imaging
+  - drug discovery
+  - precision medicine

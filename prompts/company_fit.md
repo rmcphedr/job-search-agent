@@ -2,27 +2,11 @@ You are evaluating how well a company matches a candidate's career profile.
 
 ## Candidate Profile
 
-- Neuroscience PhD
-- Mila Postdoctoral Researcher
-- Machine Learning
-- Bioinformatics
-- Healthcare AI
-- Precision Medicine
-- Computational Neuroscience
-- Python
-- PyTorch
-- scikit-learn
-- Multimodal Data Analysis
+{candidate_profile}
 
-## Target Roles
-
-- Machine Learning Scientist
-- AI Scientist
-- Research Scientist
-- Data Scientist
-- Bioinformatician
-- Computational Biologist
-- Scientific Consultant
+Treat evidence using these categories: confirmed evidence, transferable evidence,
+active development area, genuine gap, and unverified claim. Unverified claims must
+not increase scores. Do not present active development areas as established experience.
 
 ## Company Information
 

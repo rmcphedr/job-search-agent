@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
+from src.database.tracked_jobs import STAGE_LABELS, list_tracked_jobs
 from src.ui.data_loader import load_analytics_data
 from src.ui.job_detail_view import render_job_detail_view
 from src.ui.session_utils import select_job
+from src.ui.theme import STAGE_COLORS, TEAL_PRIMARY
 
 
 def render_analytics_view() -> None:
@@ -26,6 +29,15 @@ def render_analytics_view() -> None:
         st.error(f"Failed to load analytics: {exc}")
         return
 
+    overview_tab, applications_tab = st.tabs(["Portfolio overview", "Applied jobs flow"])
+    with overview_tab:
+        _render_portfolio_overview(data)
+    with applications_tab:
+        _render_applied_jobs_flow()
+
+
+def _render_portfolio_overview(data: dict) -> None:
+    """Render the original company and opportunity analytics."""
     companies = data["companies"]
     jobs = data["jobs"]
     summary = data["summary"]
@@ -107,6 +119,104 @@ def render_analytics_view() -> None:
         st.markdown("**Top locations**")
         for location, count in summary.get("top_locations", [])[:10]:
             st.markdown(f"- {location}: {count}")
+
+
+def _render_applied_jobs_flow() -> None:
+    """Render a Sankey snapshot of every job that has reached Applied."""
+    st.subheader("Applied jobs flow")
+    st.caption(
+        "Where applications stand now. Jobs remain in this view after moving beyond Applied."
+    )
+    try:
+        tracked = list_tracked_jobs()
+    except Exception as exc:
+        st.error(f"Failed to load tracked applications: {exc}")
+        return
+
+    labels, stages, counts, applied_jobs = _build_application_flow(tracked)
+    if not applied_jobs:
+        st.info("No applied jobs yet. Mark a tracked job as Applied to start the flow.")
+        return
+
+    total = len(applied_jobs)
+    stage_counts = pd.Series([row["stage"] for row in applied_jobs]).value_counts()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Applications", total)
+    m2.metric("Interviewing", int(stage_counts.get("interviewing", 0)))
+    m3.metric("Offers", int(stage_counts.get("accepted", 0)))
+    m4.metric(
+        "Closed",
+        int(stage_counts.get("rejected", 0) + stage_counts.get("withdrawn", 0)),
+    )
+
+    node_colors = [TEAL_PRIMARY, *[STAGE_COLORS.get(stage, "#64748b") for stage in stages]]
+    link_colors = [_hex_to_rgba(color, 0.38) for color in node_colors[1:]]
+    figure = go.Figure(
+        go.Sankey(
+            arrangement="snap",
+            node={
+                "label": labels,
+                "color": node_colors,
+                "pad": 24,
+                "thickness": 24,
+                "line": {"color": "rgba(15, 23, 42, 0.18)", "width": 1},
+            },
+            link={
+                "source": [0] * len(counts),
+                "target": list(range(1, len(counts) + 1)),
+                "value": counts,
+                "color": link_colors,
+            },
+        )
+    )
+    figure.update_layout(
+        margin={"l": 20, "r": 20, "t": 30, "b": 20},
+        height=max(390, 70 * len(counts)),
+        font={"size": 14},
+    )
+    st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
+    st.caption(
+        "This is a current-state snapshot. The database records the latest stage and first applied date, "
+        "not every historical stage transition."
+    )
+
+    detail = pd.DataFrame(applied_jobs)
+    detail["Status"] = detail["stage"].map(STAGE_LABELS).fillna(detail["stage"])
+    detail["Date applied"] = detail["applied_at"].fillna("").astype(str).str[:10]
+    detail = detail.rename(
+        columns={"company_name": "Company", "title": "Job position", "url": "Posting"}
+    )
+    st.dataframe(
+        detail[["Job position", "Company", "Status", "Date applied", "Posting"]],
+        width="stretch",
+        hide_index=True,
+        column_config={"Posting": st.column_config.LinkColumn(display_text="Open ↗")},
+    )
+
+
+def _build_application_flow(
+    tracked: list[dict],
+) -> tuple[list[str], list[str], list[int], list[dict]]:
+    """Build stable Sankey nodes from jobs that have an application timestamp."""
+    applied_jobs = [row for row in tracked if str(row.get("applied_at") or "").strip()]
+    ordered_stages = ("applied", "interviewing", "accepted", "rejected", "withdrawn")
+    counts_by_stage = pd.Series(
+        [str(row.get("stage") or "applied") for row in applied_jobs], dtype="object"
+    ).value_counts()
+    stages = [stage for stage in ordered_stages if int(counts_by_stage.get(stage, 0)) > 0]
+    labels = ["Applications submitted"] + [
+        "Applied — awaiting response" if stage == "applied" else STAGE_LABELS[stage]
+        for stage in stages
+    ]
+    counts = [int(counts_by_stage[stage]) for stage in stages]
+    return labels, stages, counts, applied_jobs
+
+
+def _hex_to_rgba(color: str, alpha: float) -> str:
+    """Convert a six-digit hex color to a Plotly-compatible rgba value."""
+    value = color.lstrip("#")
+    red, green, blue = (int(value[index : index + 2], 16) for index in (0, 2, 4))
+    return f"rgba({red}, {green}, {blue}, {alpha})"
 
 
 def _render_bar_chart(

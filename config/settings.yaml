@@ -3,6 +3,9 @@ project_name: job-search-agent
 paths:
   database: data/job_search.db
   company_inventory: data/company_inventory.csv
+  company_evaluations: data/company_evaluations.csv
+  staging: data/staging
+  events: data/events
   raw_pages: data/raw
   cache: data/cache
   outputs: outputs
@@ -14,4 +17,20 @@ llm:
 
 scraping:
   request_timeout_seconds: 15
-  user_agent: "job-search-agent/0.1"
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  accept_language: "en-CA,en;q=0.9"
+  playwright_headless: true
+  playwright_timeout_ms: 45000
+  playwright:
+    headless: true
+    timeout_ms: 45000
+    wait_until: domcontentloaded
+    extra_wait_ms: 2000
+    viewport_width: 1280
+    viewport_height: 900
+
+integrations:
+  resume_pipeline:
+    repository: ../resume-generation-pipeline
+    python: python3
+    timeout_seconds: 900

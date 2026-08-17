@@ -12,9 +12,11 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from src.database.db import get_database_path, get_project_root
+from src.database.db import get_connection, get_database_path, get_project_root
 from src.database.import_inventory import get_inventory_path
 from src.discovery.link_utils import clean_url
+from src.orchestration.calibration import get_effective_fit_score
+from src.orchestration.evaluation_store import load_company_evaluations
 from src.ui.status_utils import (
     CAREER_STATUS_FOUND,
     CAREER_STATUS_NOT_CHECKED,
@@ -27,6 +29,14 @@ from src.ui.status_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
 
 COMPANY_TABLE_COLUMNS = (
     "company_name",
@@ -45,10 +55,23 @@ COMPANY_TABLE_COLUMNS = (
     "career_page",
 )
 
+COMPANY_LIST_COLUMNS = (
+    "company_name",
+    "industry",
+    "fit_score",
+    "priority",
+    "hiring_status",
+    "career_page_status",
+    "job_search_status",
+    "jobs_found",
+)
+
 JOBS_DISPLAY_COLUMNS = (
     "company_name",
     "title",
     "location",
+    "source_board",
+    "keyword_score",
     "fit_score",
     "fit_reason",
     "date_found",
@@ -63,15 +86,25 @@ SELECT
     c.company_id,
     j.title,
     j.location,
+    j.source_board,
+    j.keyword_score,
+    j.matched_keywords,
     j.fit_score,
     j.fit_reason,
+    j.fit_details,
+    j.evaluated_at,
     j.date_found,
     j.active,
     j.url,
     j.description
+    ,j.description_status
+    ,j.description_source
+    ,j.description_source_url
+    ,j.description_checked_at
+    ,j.description_error
 FROM job_postings AS j
 INNER JOIN companies AS c ON j.company_id = c.company_id
-ORDER BY j.fit_score DESC, j.date_found DESC;
+ORDER BY j.fit_score IS NULL, j.fit_score DESC, j.keyword_score DESC, j.date_found DESC;
 """
 
 ACTIVE_JOBS_COUNT_QUERY = """
@@ -190,10 +223,12 @@ def load_jobs_from_db() -> pd.DataFrame:
         return empty
 
     try:
-        import sqlite3
+        from src.database.migrate import apply_migrations
 
-        connection = sqlite3.connect(db_path)
+        connection = get_connection(db_path)
         try:
+            apply_migrations(connection)
+            connection.commit()
             frame = pd.read_sql_query(JOBS_QUERY, connection)
         finally:
             connection.close()
@@ -202,11 +237,61 @@ def load_jobs_from_db() -> pd.DataFrame:
         return empty
 
     if not frame.empty:
-        parsed = frame["fit_reason"].map(parse_fit_reason)
-        frame["provider"] = parsed.map(lambda item: item.get("provider"))
-        frame["matched_keywords"] = parsed.map(lambda item: item.get("matched_keywords"))
+        if "description" in frame.columns:
+            frame["description"] = frame["description"].where(frame["description"].notna(), None)
+        if "matched_keywords" in frame.columns:
+            frame["matched_keywords"] = frame["matched_keywords"].fillna("")
+        if "fit_reason" in frame.columns:
+            parsed = frame["fit_reason"].map(parse_fit_reason)
+            if "provider" not in frame.columns:
+                frame["provider"] = parsed.map(lambda item: item.get("provider"))
+            legacy_keywords = parsed.map(lambda item: item.get("matched_keywords"))
+            if "matched_keywords" in frame.columns:
+                empty_mask = frame["matched_keywords"].fillna("").astype(str).str.strip() == ""
+                frame.loc[empty_mask, "matched_keywords"] = legacy_keywords[empty_mask]
+            else:
+                frame["matched_keywords"] = legacy_keywords
 
     return frame
+
+
+SIDEBAR_JOBS_QUERY = """
+SELECT
+    j.job_id,
+    c.company_name,
+    j.title,
+    j.location,
+    j.fit_score,
+    j.active
+FROM job_postings AS j
+INNER JOIN companies AS c ON j.company_id = c.company_id
+WHERE j.active = 1
+ORDER BY j.fit_score IS NULL, j.fit_score DESC, j.date_found DESC
+LIMIT 50;
+"""
+
+
+@st.cache_data(show_spinner=False)
+def load_jobs_sidebar() -> pd.DataFrame:
+    """Load a compact job list for the tracking sidebar."""
+    empty = pd.DataFrame(columns=["job_id", "company_name", "title", "location", "fit_score", "active"])
+    db_path = get_database_path()
+    if not db_path.exists():
+        return empty
+
+    try:
+        from src.database.migrate import apply_migrations
+
+        connection = get_connection(db_path)
+        try:
+            apply_migrations(connection)
+            connection.commit()
+            return pd.read_sql_query(SIDEBAR_JOBS_QUERY, connection)
+        finally:
+            connection.close()
+    except Exception as exc:
+        logger.warning("Failed to load sidebar jobs from %s: %s", db_path, exc)
+        return empty
 
 
 @st.cache_data(show_spinner=False)
@@ -230,6 +315,27 @@ def load_active_job_counts() -> pd.DataFrame:
         return empty
 
     return frame
+
+
+@st.cache_data(show_spinner=False)
+def load_company_evaluations_frame() -> pd.DataFrame:
+    """Load canonical company evaluations with effective_fit_score for ranking."""
+    frame = load_company_evaluations()
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    frame["effective_fit_score"] = frame.apply(get_effective_fit_score, axis=1)
+    return frame
+
+
+def get_company_evaluation(company_name: str) -> dict[str, object] | None:
+    evaluations = load_company_evaluations_frame()
+    if evaluations.empty:
+        return None
+    matches = evaluations[evaluations["company_name"].fillna("").str.lower() == company_name.strip().lower()]
+    if matches.empty:
+        return None
+    return matches.iloc[-1].to_dict()
 
 
 @st.cache_data(show_spinner=False)
@@ -332,7 +438,36 @@ def build_company_dashboard_frame() -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+    return _merge_company_evaluations(frame)
+
+
+def _merge_company_evaluations(frame: pd.DataFrame) -> pd.DataFrame:
+    """Attach fit evaluation scores to the company dashboard frame."""
+    if frame.empty:
+        return frame
+
+    evaluations = load_company_evaluations_frame()
+    if evaluations.empty:
+        frame["fit_score"] = pd.NA
+        return frame
+
+    eval_subset = evaluations[
+        ["company_name", "effective_fit_score", "industry_alignment", "mission_alignment", "career_alignment", "growth_potential", "confidence"]
+    ].copy()
+    eval_subset = eval_subset.rename(columns={"effective_fit_score": "fit_score"})
+    eval_subset["company_name_key"] = eval_subset["company_name"].fillna("").str.strip().str.lower()
+    eval_subset = eval_subset.drop_duplicates(subset=["company_name_key"], keep="last")
+
+    merged = frame.copy()
+    merged["company_name_key"] = merged["company_name"].fillna("").str.strip().str.lower()
+    merged = merged.merge(
+        eval_subset.drop(columns=["company_name"]),
+        on="company_name_key",
+        how="left",
+    )
+    merged = merged.drop(columns=["company_name_key"])
+    return merged
 
 
 @st.cache_data(show_spinner=False)
@@ -401,6 +536,7 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
 
     metadata = parse_company_notes(row.get("notes"))
     profile = _load_company_profile(row.get("company_id"))
+    evaluation = get_company_evaluation(company_name)
 
     detail = {
         "company_id": row.get("company_id", ""),
@@ -414,6 +550,10 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
         "career_page_status": dash.get("career_page_status", get_career_page_status(row.get("career_page"))),
         "job_search_status": dash.get("job_search_status", ""),
         "jobs_found": dash.get("jobs_found", 0),
+        "last_raw_jobs": dash.get("last_raw_jobs", 0),
+        "last_prescreened_jobs": dash.get("last_prescreened_jobs", 0),
+        "last_triaged_jobs": dash.get("last_triaged_jobs", 0),
+        "last_enriched_jobs": dash.get("last_enriched_jobs", 0),
         "last_checked": dash.get("last_checked", ""),
         "source_id": row.get("source_id", ""),
         "source_url": clean_url(str(row.get("source_url", ""))) or "",
@@ -422,6 +562,7 @@ def get_company_detail(company_name: str) -> dict[str, Any] | None:
         "notes": row.get("notes", ""),
         "company_summary": profile.get("company_summary") if profile else "",
         "metadata": metadata,
+        "evaluation": evaluation,
     }
     if profile:
         detail["metadata"]["company_summary"] = profile.get("company_summary") or metadata.get("company_summary")
@@ -443,6 +584,35 @@ def get_job_by_id(job_id: int | str) -> dict[str, Any] | None:
     if matches.empty:
         return None
     return matches.iloc[0].to_dict()
+
+
+def get_current_job_by_id(job_id: int | str) -> dict[str, Any] | None:
+    """Load one current job record directly from SQLite, bypassing collection caches."""
+    try:
+        normalized_job_id = int(job_id)
+    except (TypeError, ValueError):
+        return None
+
+    query = JOBS_QUERY.rsplit("ORDER BY", maxsplit=1)[0] + "WHERE j.job_id = ?;"
+    connection = get_connection()
+    try:
+        frame = pd.read_sql_query(query, connection, params=(normalized_job_id,))
+    finally:
+        connection.close()
+
+    if frame.empty:
+        return None
+
+    row = frame.iloc[0].to_dict()
+    if pd.isna(row.get("description")):
+        row["description"] = None
+    if pd.isna(row.get("matched_keywords")):
+        row["matched_keywords"] = ""
+    parsed_reason = parse_fit_reason(row.get("fit_reason"))
+    row["provider"] = parsed_reason.get("provider")
+    if not str(row.get("matched_keywords") or "").strip():
+        row["matched_keywords"] = parsed_reason.get("matched_keywords")
+    return row
 
 
 def get_company_run_history(company_name: str) -> list[dict[str, object]]:

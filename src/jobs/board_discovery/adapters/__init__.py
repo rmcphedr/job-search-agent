@@ -1,0 +1,1 @@
+"""Board discovery adapters."""

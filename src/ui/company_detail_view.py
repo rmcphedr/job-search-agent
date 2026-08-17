@@ -1,4 +1,4 @@
-"""Company detail view for the Streamlit dashboard."""
+"""Company detail panel for the Streamlit dashboard."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import streamlit as st
 
 from src.discovery.link_utils import clean_url
 from src.ui.data_loader import get_company_detail, get_company_jobs, get_company_run_history
-from src.ui.job_detail_view import render_job_detail_view
 from src.ui.session_utils import clear_company_detail, select_job
 from src.ui.status_utils import (
     CAREER_STATUS_FOUND,
@@ -17,125 +16,140 @@ from src.ui.status_utils import (
 )
 
 
+def render_company_detail_panel(company_name: str) -> None:
+    """Render a compact company preview in the right-side panel."""
+    detail = get_company_detail(company_name)
+    if detail is None:
+        st.warning(f"Company not found: {company_name}")
+        return
+
+    health_label, health_note = _company_health(detail)
+    st.markdown(f"### {detail['company_name']}")
+    st.caption(f"{health_label} — {health_note}")
+
+    evaluation = detail.get("evaluation")
+    if evaluation:
+        st.markdown("**Fit evaluation**")
+        effective = evaluation.get("effective_fit_score", evaluation.get("fit_score"))
+        fit_col1, fit_col2, fit_col3 = st.columns(3)
+        fit_col1.metric("Composite", _format_score(effective))
+        fit_col2.metric("Industry", _format_score(evaluation.get("industry_alignment")))
+        fit_col3.metric("Mission", _format_score(evaluation.get("mission_alignment")))
+        fit_col4, fit_col5, fit_col6 = st.columns(3)
+        fit_col4.metric("Career", _format_score(evaluation.get("career_alignment")))
+        fit_col5.metric("Growth", _format_score(evaluation.get("growth_potential")))
+        fit_col6.metric("Confidence", _format_score(evaluation.get("confidence")))
+        _render_if_present("Reasoning", evaluation.get("reasoning"), full_width=True)
+        _render_if_present("Best roles", evaluation.get("best_roles"))
+        _render_if_present("Interesting factors", evaluation.get("interesting_factors"))
+        _render_if_present("Red flags", evaluation.get("red_flags"))
+        if evaluation.get("calibration_feedback"):
+            _render_if_present("Your calibration", evaluation.get("calibration_feedback"), full_width=True)
+    else:
+        st.info("No fit evaluation yet.")
+
+    st.markdown("**Company details**")
+    st.markdown(f"**Location:** {detail.get('location') or '—'}")
+    st.markdown(f"**Industry:** {detail.get('industry') or '—'}")
+    st.markdown(f"**Priority:** {detail.get('priority') or '—'}")
+    st.markdown(f"**Hiring status:** {detail.get('hiring_status') or '—'}")
+    st.markdown(f"**Career page status:** {detail.get('career_page_status') or '—'}")
+    st.markdown(f"**Job search status:** {detail.get('job_search_status') or '—'}")
+    st.markdown(f"**Last checked:** {detail.get('last_checked') or '—'}")
+
+    pipeline_col1, pipeline_col2 = st.columns(2)
+    with pipeline_col1:
+        st.metric("Raw jobs", int(detail.get("last_raw_jobs") or 0))
+        st.metric("Pre-screened", int(detail.get("last_prescreened_jobs") or 0))
+    with pipeline_col2:
+        st.metric("Triaged", int(detail.get("last_triaged_jobs") or 0))
+        st.metric("Enriched", int(detail.get("last_enriched_jobs") or 0))
+    st.metric("Active jobs saved", int(detail.get("jobs_found") or 0))
+
+    website = clean_url(str(detail.get("website") or ""))
+    career_page = clean_url(str(detail.get("career_page") or ""))
+    link_col1, link_col2 = st.columns(2)
+    with link_col1:
+        if website:
+            st.link_button("Website", website, width="stretch")
+        else:
+            st.button("Website", disabled=True, width="stretch", key=f"panel_website_{company_name}")
+    with link_col2:
+        if career_page and career_page.upper() != "NOT FOUND":
+            st.link_button("Career page", career_page, width="stretch")
+        else:
+            st.button("Career page", disabled=True, width="stretch", key=f"panel_career_{company_name}")
+
+    metadata = detail.get("metadata") or {}
+    if _has_metadata(metadata, detail):
+        with st.expander("Metadata & notes", expanded=False):
+            _render_if_present("Company summary", metadata.get("company_summary") or detail.get("company_summary"))
+            _render_if_present("Description", metadata.get("description"))
+            _render_if_present("Specialties", metadata.get("specialties"))
+            _render_if_present("Source category", detail.get("source_category"))
+            _render_if_present("Source directory", detail.get("source_id"))
+            _render_if_present("Confidence", detail.get("confidence"))
+            _render_if_present("Source URL", detail.get("source_url"))
+            _render_if_present("Notes", metadata.get("raw_notes") or detail.get("notes"), full_width=True)
+
+    jobs = get_company_jobs(company_name)
+    with st.expander(f"Jobs ({len(jobs)})", expanded=False):
+        if jobs.empty:
+            st.caption("No jobs discovered yet.")
+        else:
+            display_jobs = jobs[["title", "location", "fit_score", "date_found", "active", "job_id"]].copy()
+            display_jobs["active"] = display_jobs["active"].map(
+                lambda value: "Yes" if str(value).strip().lower() in {"1", "true"} else "No"
+            )
+            st.dataframe(display_jobs, width="stretch", hide_index=True)
+            job_labels = [f"{row['title']} | fit={row.get('fit_score', '—')}" for _, row in jobs.iterrows()]
+            selected_index = st.selectbox(
+                "Open job",
+                options=range(len(job_labels)),
+                format_func=lambda index: job_labels[index],
+                key=f"panel_company_job_select_{company_name}",
+            )
+            selected_job = jobs.iloc[selected_index]
+            if st.button("View job detail", width="stretch", key=f"panel_open_job_{company_name}"):
+                select_job(selected_job["job_id"])
+                st.rerun()
+
+    history = get_company_run_history(company_name)
+    if history:
+        with st.expander("Recent discovery activity", expanded=False):
+            for entry in history:
+                st.markdown(
+                    f"- **{entry['run_type']}** at {entry['time']} — {entry.get('detail', '—')}"
+                )
+
+
 def render_company_detail_view(company_name: str | None = None) -> None:
-    """Render a detailed company research page."""
+    """Render a full-page company detail view (legacy navigation)."""
     name = company_name or st.session_state.get("selected_company")
     if not name:
         st.warning("No company selected.")
         return
 
     if st.session_state.get("show_job_detail") and st.session_state.get("selected_job_id"):
-        render_job_detail_view()
-        return
+        from src.ui.job_detail_view import render_job_detail_view
 
-    detail = get_company_detail(name)
-    if detail is None:
-        st.error(f"Company not found: {name}")
-        if st.button("← Back to Companies"):
-            clear_company_detail()
-            st.rerun()
+        render_job_detail_view()
         return
 
     if st.button("← Back to Companies"):
         clear_company_detail()
         st.rerun()
 
-    st.header(detail["company_name"])
-    health_label, health_note = _company_health(detail)
-    st.markdown(f"**Company health:** {health_label} — {health_note}")
+    render_company_detail_panel(name)
 
-    st.subheader("Company Overview")
-    overview_col1, overview_col2 = st.columns(2)
-    with overview_col1:
-        st.markdown(f"**Website:** {detail.get('website') or '—'}")
-        st.markdown(f"**Industry:** {detail.get('industry') or '—'}")
-        st.markdown(f"**Location:** {detail.get('location') or '—'}")
-        st.markdown(f"**Priority:** {detail.get('priority') or '—'}")
-        st.markdown(f"**Hiring status:** {detail.get('hiring_status') or '—'}")
-    with overview_col2:
-        st.markdown(f"**Career page status:** {detail.get('career_page_status') or '—'}")
-        st.markdown(f"**Job search status:** {detail.get('job_search_status') or '—'}")
-        st.markdown(f"**Jobs found:** {detail.get('jobs_found', 0)}")
-        st.markdown(f"**Last checked:** {detail.get('last_checked') or '—'}")
-        st.markdown(f"**Career page:** {detail.get('career_page') or '—'}")
 
-    link_col1, link_col2 = st.columns(2)
-    website = clean_url(str(detail.get("website") or ""))
-    career_page = clean_url(str(detail.get("career_page") or ""))
-    with link_col1:
-        if website:
-            st.link_button("Open Website", website, width="stretch")
-        else:
-            st.button("Open Website", disabled=True, width="stretch")
-    with link_col2:
-        if career_page and career_page.upper() != "NOT FOUND":
-            st.link_button("Open Career Page", career_page, width="stretch")
-        else:
-            st.button("Open Career Page", disabled=True, width="stretch")
-
-    metadata = detail.get("metadata") or {}
-    if _has_metadata(metadata, detail):
-        st.subheader("Company Metadata")
-        meta_col1, meta_col2 = st.columns(2)
-        with meta_col1:
-            _render_if_present("Company summary", metadata.get("company_summary") or detail.get("company_summary"))
-            _render_if_present("Description", metadata.get("description"))
-            _render_if_present("Specialties", metadata.get("specialties"))
-        with meta_col2:
-            _render_if_present("Source category", detail.get("source_category"))
-            _render_if_present("Source directory", detail.get("source_id"))
-            _render_if_present("Confidence", detail.get("confidence"))
-            _render_if_present("Source URL", detail.get("source_url"))
-        _render_if_present("Notes", metadata.get("raw_notes") or detail.get("notes"), full_width=True)
-
-    st.subheader("Jobs Found At Company")
-    jobs = get_company_jobs(name)
-    if jobs.empty:
-        st.info("No jobs discovered for this company yet.")
-    else:
-        display_jobs = jobs[["title", "location", "fit_score", "date_found", "active", "job_id"]].copy()
-        display_jobs["active"] = display_jobs["active"].map(
-            lambda value: "Yes" if str(value).strip().lower() in {"1", "true"} else "No"
-        )
-        st.dataframe(display_jobs, width="stretch", hide_index=True)
-
-        job_labels = [
-            f"{row['title']} | fit={row.get('fit_score', '—')}"
-            for _, row in jobs.iterrows()
-        ]
-        selected_index = st.selectbox(
-            "Select a job to view details",
-            options=range(len(job_labels)),
-            format_func=lambda index: job_labels[index],
-            key=f"company_job_select_{name}",
-        )
-        selected_job = jobs.iloc[selected_index]
-        if st.button("Open Job Detail", width="stretch"):
-            select_job(selected_job["job_id"])
-            st.rerun()
-
-    st.subheader("Recent Discovery Activity")
-    history = get_company_run_history(name)
-    if not history:
-        st.info("No history available.")
-    else:
-        for entry in history:
-            st.markdown(
-                f"- **{entry['run_type']}** at {entry['time']} — "
-                f"checked={entry.get('companies_checked', '—')}, "
-                f"detail={entry.get('detail', '—')}"
-            )
-
-    st.subheader("Coming Soon")
-    future_col1, future_col2, future_col3, future_col4 = st.columns(4)
-    with future_col1:
-        st.button("Resume Tailoring", disabled=True, help="Coming Soon", key=f"resume_{name}")
-    with future_col2:
-        st.button("Cover Letter Generation", disabled=True, help="Coming Soon", key=f"cover_{name}")
-    with future_col3:
-        st.button("Outreach Generation", disabled=True, help="Coming Soon", key=f"outreach_{name}")
-    with future_col4:
-        st.button("Application Tracking", disabled=True, help="Coming Soon", key=f"track_{name}")
+def _format_score(value: object) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        return f"{float(value):.1f}"
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _company_health(detail: dict[str, object]) -> tuple[str, str]:
@@ -175,6 +189,6 @@ def _render_if_present(label: str, value: object, *, full_width: bool = False) -
     text = str(value).strip()
     if full_width:
         st.markdown(f"**{label}**")
-        st.text(text[:8000])
+        st.text(text[:4000])
     else:
         st.markdown(f"**{label}:** {text[:500]}")

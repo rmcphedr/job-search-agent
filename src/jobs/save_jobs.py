@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 
+from src.database.company_upsert import upsert_company_from_job
 from src.database.db import get_connection
+from src.database.migrate import apply_migrations
 from src.jobs.job_models import JobCandidate
 from src.jobs.job_url_utils import compute_content_hash, normalize_job_url
+from src.orchestration.job_evaluation_queue import enqueue_job, sync_job_eligibility
 
 
 @dataclass
@@ -15,6 +19,17 @@ class SaveJobsResult:
     inserted: int = 0
     duplicates_skipped: int = 0
     updated: int = 0
+    companies_created: int = 0
+    skipped_no_company: int = 0
+
+
+@dataclass
+class SaveJobsOptions:
+    force_refresh: bool = False
+    create_company_if_missing: bool = False
+    pending_evaluation: bool = False
+    source_board: str | None = None
+    discovery_run_id: str | None = None
 
 
 def resolve_company_id(connection: sqlite3.Connection, candidate: JobCandidate) -> int | None:
@@ -97,26 +112,57 @@ def _build_fit_reason(candidate: JobCandidate) -> str:
     return "; ".join(parts)
 
 
-def _resolve_fit_score(candidate: JobCandidate) -> float:
+def _resolve_fit_score(candidate: JobCandidate) -> float | None:
     if candidate.llm_fit_score is not None:
         return round(candidate.llm_fit_score, 2)
-    return round(candidate.keyword_score * 10, 2)
+    if candidate.keyword_score > 0:
+        return round(candidate.keyword_score * 10, 2)
+    return None
+
+
+def _serialize_matched_keywords(keywords: list[str]) -> str | None:
+    if not keywords:
+        return None
+    return json.dumps(keywords)
 
 
 def save_jobs(
     candidates: list[JobCandidate],
     *,
     force_refresh: bool = False,
+    create_company_if_missing: bool = False,
+    pending_evaluation: bool = False,
+    source_board: str | None = None,
+    discovery_run_id: str | None = None,
+    options: SaveJobsOptions | None = None,
 ) -> SaveJobsResult:
     """Insert new jobs into job_postings, skipping duplicates unless force_refresh."""
+    if options is not None:
+        force_refresh = options.force_refresh
+        create_company_if_missing = options.create_company_if_missing
+        pending_evaluation = options.pending_evaluation
+        source_board = options.source_board
+        discovery_run_id = options.discovery_run_id
+
     result = SaveJobsResult()
     connection = get_connection()
 
     try:
+        apply_migrations(connection)
         for candidate in candidates:
             company_id = resolve_company_id(connection, candidate)
             if company_id is None:
-                continue
+                if create_company_if_missing:
+                    company_id = upsert_company_from_job(
+                        connection,
+                        company_name=candidate.company_name,
+                        job_url=candidate.url,
+                        location=candidate.location,
+                    )
+                    result.companies_created += 1
+                else:
+                    result.skipped_no_company += 1
+                    continue
 
             content_hash = candidate.content_hash or compute_content_hash(
                 candidate.title,
@@ -132,39 +178,88 @@ def save_jobs(
                 content_hash=content_hash,
             )
 
-            fit_score = _resolve_fit_score(candidate)
-            fit_reason = _build_fit_reason(candidate)
+            fit_score = None if pending_evaluation else _resolve_fit_score(candidate)
+            fit_reason = None if pending_evaluation else _build_fit_reason(candidate)
+            fit_details = None if pending_evaluation else candidate.fit_details
+            board = source_board or candidate.provider
+            matched_keywords_json = _serialize_matched_keywords(candidate.matched_keywords)
 
             if existing_job_id is not None:
                 if force_refresh:
                     connection.execute(
                         """
-                        UPDATE job_postings
-                        SET title = ?,
+                    UPDATE job_postings
+                        SET company_id = ?,
+                            title = ?,
                             location = ?,
                             url = ?,
                             description = ?,
                             active = 1,
                             fit_score = ?,
-                            fit_reason = ?
+                            fit_reason = ?,
+                            fit_details = ?,
+                            evaluated_at = CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
+                            source_board = coalesce(?, source_board),
+                            discovery_run_id = coalesce(?, discovery_run_id),
+                            keyword_score = ?,
+                            matched_keywords = ?
                         WHERE job_id = ?;
                         """,
                         (
+                            company_id,
                             candidate.title,
                             candidate.location,
                             candidate.url,
                             candidate.description,
                             fit_score,
                             fit_reason,
+                            fit_details,
+                            fit_details,
+                            board,
+                            discovery_run_id,
+                            candidate.keyword_score,
+                            matched_keywords_json,
                             existing_job_id,
                         ),
                     )
                     result.updated += 1
                 else:
-                    result.duplicates_skipped += 1
+                    existing = connection.execute(
+                        "SELECT description FROM job_postings WHERE job_id = ?;",
+                        (existing_job_id,),
+                    ).fetchone()
+                    existing_description = str(existing["description"] or "").strip() if existing else ""
+                    if candidate.description and not existing_description:
+                        connection.execute(
+                            """
+                            UPDATE job_postings
+                            SET description = ?,
+                                description_status = 'enriched',
+                                description_source = 'rediscovery',
+                                description_source_url = ?,
+                                description_checked_at = CURRENT_TIMESTAMP,
+                                description_error = NULL,
+                                fit_score = NULL,
+                                fit_reason = NULL,
+                                fit_details = NULL,
+                                evaluated_at = NULL,
+                                active = 1
+                            WHERE job_id = ?;
+                            """,
+                            (candidate.description, candidate.url, existing_job_id),
+                        )
+                        sync_job_eligibility(
+                            existing_job_id,
+                            description_ready=True,
+                            reactivate=True,
+                            connection=connection,
+                        )
+                        result.updated += 1
+                    else:
+                        result.duplicates_skipped += 1
                 continue
 
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO job_postings (
                     company_id,
@@ -174,8 +269,18 @@ def save_jobs(
                     description,
                     active,
                     fit_score,
-                    fit_reason
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?);
+                    fit_reason,
+                    fit_details,
+                    evaluated_at,
+                    source_board,
+                    discovery_run_id,
+                    keyword_score,
+                    matched_keywords,
+                    description_status,
+                    description_source,
+                    description_source_url,
+                    description_checked_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END);
                 """,
                 (
                     company_id,
@@ -185,7 +290,22 @@ def save_jobs(
                     candidate.description,
                     fit_score,
                     fit_reason,
+                    fit_details,
+                    fit_details,
+                    board,
+                    discovery_run_id,
+                    candidate.keyword_score,
+                    matched_keywords_json,
+                    "enriched" if candidate.description else None,
+                    "discovery" if candidate.description else None,
+                    candidate.url if candidate.description else None,
+                    candidate.description,
                 ),
+            )
+            enqueue_job(
+                int(cursor.lastrowid),
+                description_ready=bool(candidate.description),
+                connection=connection,
             )
             result.inserted += 1
 
@@ -194,4 +314,3 @@ def save_jobs(
         connection.close()
 
     return result
-

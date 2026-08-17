@@ -1,0 +1,313 @@
+# Canonical job board catalog for deterministic board discovery.
+# Python CLI: python -m src.jobs.run_board_discovery
+# Keywords: config/job_keywords.yaml | Roles: config/target_roles.yml
+
+defaults:
+  location: Canada
+  max_pages_per_query: 3
+  request_delay_ms: 1500
+  request_timeout_seconds: 15
+  min_keyword_score: 0.25
+  require_canada_location: true
+  max_ats_enrichments: 10
+  # Shared description enrichment budget. Falls back to max_ats_enrichments for compatibility.
+  max_description_enrichments: 10
+
+# Domains treated as job boards (not employer websites) when deriving company website.
+job_board_domains:
+  - jobbank.gc.ca
+  - guichetemplois.gc.ca
+  - indeed.com
+  - ca.indeed.com
+  - glassdoor.ca
+  - glassdoor.com
+  - google.com
+  - linkedin.com
+  - jobs.80000hours.org
+  - workopolis.com
+  - eluta.ca
+  - talent.com
+  - biospace.com
+  - biotalent.ca
+  - bioinformatics.ca
+  - lifesciencesbc.ca
+  - mila.quebec
+  - apply.workable.com
+  - neurotechjobs.io
+  - neurotechx.com
+  - jobs.neurotechx.com
+  - digitalhealthcanada.com
+  - healthcarecan.ca
+  - healthecareers.com
+  - jobmine.himss.org
+  - amia.org
+  - wellfound.com
+  - angel.co
+
+boards:
+  # --- General Canada ---
+  - source_id: linkedin
+    name: LinkedIn Jobs
+    adapter: linkedin
+    priority: essential
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://www.linkedin.com/jobs
+    wait_selector: ".base-card, .jobs-search__results-list li"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "2000"
+    notes: "Requires Playwright; may need login for full results."
+
+  - source_id: indeed_ca
+    name: Indeed Canada
+    adapter: indeed_ca
+    priority: essential
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://ca.indeed.com
+    search_path: /jobs
+    search_params:
+      l: Canada
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    wait_selector: ".job_seen_beacon, .jobsearch-ResultsList, h2.jobTitle"
+
+  - source_id: google_jobs
+    name: Google Jobs
+    adapter: google_jobs
+    priority: high
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://www.google.com
+    search_path: /search
+    wait_selector: "[data-job-id], div[jsname='x5pWN'], div[class*='PwjeAc']"
+    search_params:
+      location: Canada
+      hl: en-CA
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    notes: "Playwright-only Google Jobs surface; markup availability may vary by query or region."
+
+  - source_id: glassdoor
+    name: Glassdoor Canada
+    adapter: glassdoor
+    priority: medium
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://www.glassdoor.ca
+    search_path: /Job/jobs.htm
+    wait_selector: "li[data-test='jobListing'], [class*='JobCard_jobCardContainer']"
+    search_params:
+      location: Canada
+      locT: N
+      locId: "3"
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "3000"
+    notes: "Playwright adapter; may be blocked or require a consent/login interaction."
+
+  - source_id: jobbank
+    name: Job Bank Canada
+    adapter: jobbank
+    priority: high
+    phase: 1
+    enabled: true
+    base_url: https://www.jobbank.gc.ca
+    search_path: /jobsearch/jobsearch
+
+  - source_id: workopolis
+    name: Workopolis
+    adapter: workopolis
+    priority: medium
+    phase: 3
+    enabled: true
+    base_url: https://www.workopolis.com
+    search_path: /search
+    search_params:
+      l: Canada
+    notes: "Canadian listings; Workopolis is part of the Indeed network."
+
+  - source_id: eluta
+    name: Eluta
+    adapter: eluta
+    priority: high
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://www.eluta.ca
+    search_path: /search
+    search_params:
+      l: Toronto
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "4000"
+    wait_selector: "div.organic-job, a.lk-job-title"
+
+  # --- Life sciences ---
+  - source_id: biospace
+    name: BioSpace Jobs
+    adapter: biospace
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://jobs.biospace.com
+    search_path: /jobs/
+    search_params:
+      countries: Canada
+
+  - source_id: biotalent_petridish
+    name: BioTalent Canada – The PetriDish
+    adapter: petridish
+    priority: essential
+    phase: 2
+    enabled: true
+    base_url: https://www.biotalent.ca
+    search_path: /the-petridish/
+    notes: "Canadian bilingual biotech jobs at biotalent.ca/the-petridish/"
+
+  - source_id: bioinformatics_ca
+    name: Bioinformatics.ca Jobs
+    adapter: bioinformatics_ca
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://bioinformatics.ca
+    search_path: /jobs
+
+  - source_id: life_sciences_bc
+    name: Life Sciences BC Job Board
+    adapter: life_sciences_bc
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://lifesciencesbc.ca
+
+  - source_id: mila
+    name: Mila Careers
+    adapter: mila
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://apply.workable.com
+    search_path: /api/v1/widget/accounts/mila-2
+    search_params:
+      account_slug: mila-2
+    notes: "Official Mila institute openings via Workable (linked from mila.quebec). Partner-company jobs are not aggregated here."
+
+  # --- Neuro / health ---
+  - source_id: sfn_neurojobs
+    name: Society for Neuroscience NeuroJobs
+    adapter: stub
+    priority: essential
+    phase: 3
+    enabled: false
+    base_url: https://www.neurojobs.org
+    notes: "TLS/SSL instability from Python requests; phase 3 Playwright."
+
+  - source_id: can_neurojobs
+    name: Canadian Association for Neuroscience NeuroJobs
+    adapter: can_acn
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://can-acn.org
+
+  - source_id: neurotechx
+    name: NeuroTechX Jobs
+    adapter: neurotechx
+    priority: essential
+    phase: 1
+    enabled: true
+    base_url: https://neurotechx.com
+    search_path: /find-a-job/
+
+  - source_id: neurotech_jobs
+    name: Neurotech Jobs
+    adapter: neurotech
+    priority: essential
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://neurotechjobs.io
+    wait_selector: "a[href*='jobs'], h2, h3"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "2000"
+
+  - source_id: digital_health_canada
+    name: Digital Health Canada Careers
+    adapter: digital_health_canada
+    priority: essential
+    phase: 2
+    enabled: true
+    fetch_once: true
+    base_url: https://digitalhealthcanada.com
+    search_path: /careers/
+    notes: "Member + DHC staff roles listed at digitalhealthcanada.com/careers/"
+
+  - source_id: healthcarecan
+    name: HealthCareCAN Careers
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.healthcarecan.ca
+    notes: "Job board is informational hub without scrapeable external listings."
+
+  - source_id: healthecareers
+    name: Health eCareers
+    adapter: healthecareers
+    priority: medium
+    phase: 2
+    enabled: true
+    base_url: https://www.healthecareers.com
+    search_path: /search-jobs
+
+  - source_id: himss_jobmine
+    name: HIMSS JobMine
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://jobmine.himss.org
+    notes: "Returns 403 for automated requests."
+
+  - source_id: amia
+    name: AMIA Career Center
+    adapter: stub
+    priority: high
+    phase: 3
+    enabled: false
+    base_url: https://www.amia.org
+    notes: "careers.amia.org TLS certificate hostname mismatch."
+
+  # --- Startups ---
+  - source_id: wellfound
+    name: Wellfound
+    adapter: wellfound
+    priority: essential
+    phase: 3
+    enabled: true
+    scrape_mode: playwright
+    base_url: https://wellfound.com
+    search_path: /jobs
+    wait_selector: "[data-test='JobCard'], a[data-test='job-title']"
+    search_params:
+      playwright_wait_until: domcontentloaded
+      playwright_extra_wait_ms: "5000"
+    notes: "Often blocked by DataDome CAPTCHA in headless mode."
+
+# ATS providers — used when following board listing URLs to employer ATS pages.
+ats_providers:
+  - greenhouse
+  - lever
+  - ashby
+  - workday
+  - smartrecruiters
+  - icims

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Callable
@@ -14,6 +13,7 @@ from bs4 import BeautifulSoup, Tag
 from src.discovery.fetch import get_request_timeout, get_user_agent
 from src.discovery.link_utils import clean_url, normalize_url
 from src.jobs.job_detail_parsers import fix_text_encoding, parse_job_detail_from_html
+from src.jobs.employer_ats_adapters import extract_ats_jobs
 from src.jobs.discovery_config import DiscoveryConfig, load_discovery_config
 from src.jobs.filter_jobs import prescreen_jobs, score_job, apply_location_score_boost
 from src.jobs.job_models import JobCandidate
@@ -287,33 +287,32 @@ def _extract_links_as_jobs(
     return candidates
 
 
-def _greenhouse_board_token(url: str, html: str) -> str | None:
-    skip_tokens = {"embed", "job_board", "js", "jobs", "v1", "boards"}
-    patterns = (
-        r"boards-api\.greenhouse\.io/v1/boards/([^/?#\"'\s]+)",
-        r"boards\.greenhouse\.io/([^/?#\"'\s]+)",
-        r"job-boards\.greenhouse\.io/([^/?#\"'\s]+)",
-        r"embed/job_board/js\?[^\"']*?\bfor=([^&\"'\s]+)",
-        r"boards\.greenhouse\.io/embed/job_board/js\?[^\"']*?\bfor=([^&\"'\s]+)",
-        r"data-board-token=[\"']([^\"']+)[\"']",
-        r"boardToken[\"']?\s*[:=]\s*[\"']([^\"']+)[\"']",
-    )
-    for source in (url, html):
-        for pattern in patterns:
-            match = re.search(pattern, source, flags=re.I)
-            if not match:
-                continue
-            token = match.group(1).strip()
-            if token and token.lower() not in skip_tokens:
-                return token
-    return None
-
-
-def _html_to_text(html_content: str | None) -> str | None:
-    if not html_content:
-        return None
-    soup = BeautifulSoup(html_content, "html.parser")
-    return truncate_text(soup.get_text("\n", strip=True))
+def _extract_via_ats_adapter(
+    provider: str,
+    url: str,
+    html: str,
+    *,
+    company_name: str,
+    company_id: int | None,
+    source_career_page: str,
+) -> list[JobCandidate]:
+    candidates: list[JobCandidate] = []
+    for job in extract_ats_jobs(provider, url, html):
+        candidate = _make_candidate(
+            company_name=company_name,
+            company_id=company_id,
+            source_career_page=source_career_page,
+            provider=provider,
+            title=job.title,
+            url=job.url,
+            location=job.location,
+            description=job.description,
+            date_posted=job.date_posted,
+            notes=f"{provider.title()} API adapter",
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+    return _dedupe_candidates(candidates)
 
 
 def extract_greenhouse_jobs(
@@ -324,42 +323,12 @@ def extract_greenhouse_jobs(
     company_id: int | None,
     source_career_page: str,
 ) -> list[JobCandidate]:
-    board = _greenhouse_board_token(url, html)
-    if board:
-        api_url = f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true"
-        try:
-            response = requests.get(api_url, timeout=get_request_timeout())
-            if response.status_code == 200:
-                payload = response.json()
-                jobs = payload.get("jobs", [])
-                candidates: list[JobCandidate] = []
-                for job in jobs:
-                    title = str(job.get("title", "")).strip()
-                    job_url = job.get("absolute_url")
-                    location = None
-                    location_obj = job.get("location")
-                    if isinstance(location_obj, dict):
-                        location = location_obj.get("name")
-                    elif isinstance(location_obj, str):
-                        location = location_obj
-                    description = _html_to_text(str(job.get("content", "")))
-                    candidate = _make_candidate(
-                        company_name=company_name,
-                        company_id=company_id,
-                        source_career_page=source_career_page,
-                        provider="greenhouse",
-                        title=title,
-                        url=str(job_url) if job_url else None,
-                        location=location,
-                        description=description,
-                        notes="Greenhouse API",
-                    )
-                    if candidate is not None:
-                        candidates.append(candidate)
-                if candidates:
-                    return _dedupe_candidates(candidates)
-        except (requests.RequestException, json.JSONDecodeError, ValueError) as exc:
-            logger.warning("Greenhouse API failed for %s: %s", board, exc)
+    candidates = _extract_via_ats_adapter(
+        "greenhouse", url, html, company_name=company_name, company_id=company_id,
+        source_career_page=source_career_page,
+    )
+    if candidates:
+        return candidates
 
     return _dedupe_candidates(
         _extract_links_as_jobs(
@@ -382,6 +351,12 @@ def extract_lever_jobs(
     company_id: int | None,
     source_career_page: str,
 ) -> list[JobCandidate]:
+    candidates = _extract_via_ats_adapter(
+        "lever", url, html, company_name=company_name, company_id=company_id,
+        source_career_page=source_career_page,
+    )
+    if candidates:
+        return candidates
     return _dedupe_candidates(
         _extract_links_as_jobs(
             html,
@@ -403,6 +378,12 @@ def extract_ashby_jobs(
     company_id: int | None,
     source_career_page: str,
 ) -> list[JobCandidate]:
+    api_jobs = _extract_via_ats_adapter(
+        "ashby", url, html, company_name=company_name, company_id=company_id,
+        source_career_page=source_career_page,
+    )
+    if api_jobs:
+        return api_jobs
     jobs = _extract_links_as_jobs(
         html,
         url,
@@ -488,6 +469,12 @@ def extract_workday_jobs(
     company_id: int | None,
     source_career_page: str,
 ) -> list[JobCandidate]:
+    api_jobs = _extract_via_ats_adapter(
+        "workday", url, html, company_name=company_name, company_id=company_id,
+        source_career_page=source_career_page,
+    )
+    if api_jobs:
+        return api_jobs
     jobs = _extract_links_as_jobs(
         html,
         url,

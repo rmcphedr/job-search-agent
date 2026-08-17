@@ -12,16 +12,30 @@ if str(ROOT) not in sys.path:
 import streamlit as st
 
 from src.ui.analytics_view import render_analytics_view
+from src.ui.board_sources_view import render_board_sources_view
 from src.ui.company_view import render_company_view
 from src.ui.data_loader import global_search
 from src.ui.jobs_view import render_jobs_view
+from src.ui.operations_view import render_operations_view
 from src.ui.profile_view import render_profile_view
-from src.ui.session_utils import init_session_state, render_selection_sidebar, select_company, select_job
+from src.ui.review_view import render_review_view
+from src.ui.session_utils import (
+    apply_pending_navigation,
+    init_session_state,
+    render_selection_sidebar,
+    select_company,
+    select_job,
+)
+from src.ui.tracking_view import render_tracking_view
 
 PAGES = {
+    "Review": render_review_view,
+    "Tracking": render_tracking_view,
     "Companies": render_company_view,
     "Jobs": render_jobs_view,
+    "Board Sources": render_board_sources_view,
     "Analytics": render_analytics_view,
+    "Operations": render_operations_view,
     "Profile / Settings": render_profile_view,
 }
 
@@ -87,6 +101,7 @@ def main() -> None:
 
     init_session_state()
     st.session_state.setdefault("global_search_results", None)
+    apply_pending_navigation()
 
     st.sidebar.title("Job Search Agent")
     st.sidebar.caption("Company and job research control panel")
@@ -98,6 +113,7 @@ def main() -> None:
     st.sidebar.markdown(
         "Data sources:\n"
         "- `data/company_inventory.csv`\n"
+        "- `data/company_evaluations.csv`\n"
         "- `data/job_search.db`"
     )
 
