@@ -428,9 +428,13 @@ def apply_migrations(connection: sqlite3.Connection) -> list[str]:
         changes.append("schema_migrations.version=10")
         version = 10
 
-    if version < 11:
+    evaluation_tables_missing = any(
+        not _table_exists(connection, table)
+        for table in ("job_evaluation_queue", "job_evaluation_runs", "job_evaluation_attempts")
+    )
+    if version < 11 or evaluation_tables_missing:
         connection.executescript(JOB_EVALUATION_DDL)
-        connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (11,))
+        connection.execute("INSERT OR IGNORE INTO schema_migrations (version) VALUES (?);", (11,))
         changes.extend(
             (
                 "job_evaluation_queue",

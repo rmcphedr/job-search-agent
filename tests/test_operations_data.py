@@ -20,3 +20,23 @@ def test_backlog_preview_is_read_only_and_enrollment_requires_confirmation(tmp_p
     with pytest.raises(ValueError):
         enroll_backlog([1], confirm=False, max_jobs=10, token_limit=50000, connection=connection)
     assert enroll_backlog([1], confirm=True, max_jobs=10, token_limit=50000, connection=connection) == 1
+
+
+def test_owned_metrics_connection_persists_pending_migration(tmp_path, monkeypatch):
+    db_path = tmp_path / "jobs.db"
+    connection = get_connection(db_path)
+    connection.executescript(Path("src/database/schema.sql").read_text())
+    connection.execute("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)")
+    connection.execute("INSERT INTO schema_migrations(version) VALUES (10)")
+    connection.execute("DROP TABLE job_evaluation_attempts")
+    connection.execute("DROP TABLE job_evaluation_runs")
+    connection.execute("DROP TABLE job_evaluation_queue")
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr("src.ui.operations_data.get_connection", lambda: get_connection(db_path))
+
+    load_queue_metrics()
+
+    reopened = get_connection(db_path)
+    assert reopened.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 11
+    assert reopened.execute("SELECT count(*) FROM job_evaluation_queue").fetchone()[0] == 0

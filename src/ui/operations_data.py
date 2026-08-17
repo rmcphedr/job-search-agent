@@ -39,6 +39,8 @@ def load_queue_metrics(*, connection=None) -> QueueMetrics:
     conn = connection or get_connection()
     try:
         apply_migrations(conn)
+        if owned:
+            conn.commit()
         counts = {row[0]: row[1] for row in conn.execute("SELECT status,count(*) FROM job_evaluation_queue GROUP BY status")}
         stale = conn.execute("SELECT count(*) FROM job_evaluation_queue WHERE status='claimed' AND datetime(lease_expires_at)<=datetime('now')").fetchone()[0]
         return QueueMetrics(ready=counts.get("queued",0), deferred=counts.get("deferred",0), claimed=counts.get("claimed",0),
@@ -53,6 +55,8 @@ def preview_backlog(*, limit: int, verified_only: bool = True, source: str | Non
     conn = connection or get_connection()
     try:
         apply_migrations(conn)
+        if owned:
+            conn.commit()
         clauses = ["j.active=1", "j.evaluated_at IS NULL", "q.queue_id IS NULL", "coalesce(j.keyword_score,0)>=?"]
         params: list[object] = [min_keyword_score]
         if verified_only: clauses.append("j.description_status='enriched' AND j.description_checked_at IS NOT NULL")
