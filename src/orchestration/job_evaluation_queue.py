@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from src.database.db import get_connection
+from src.database.db import SCHEMA_FILE, get_connection
 from src.database.migrate import apply_migrations
 
 
@@ -32,6 +32,8 @@ def _with_connection(connection: sqlite3.Connection | None):
     owned = connection is None
     conn = connection or get_connection()
     conn.row_factory = sqlite3.Row
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='job_postings'").fetchone() is None:
+        conn.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     apply_migrations(conn)
     return conn, owned
 

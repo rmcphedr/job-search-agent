@@ -75,6 +75,19 @@ Optional: `reports/job_fit/<job_slug>_<timestamp>.md`
 
 ## Python merge
 
+### Durable agent queue (primary)
+
+Preview and explicitly enroll historical jobs; never enroll them automatically:
+
+```bash
+python3 -m src.orchestration.evaluation_cli backlog-preview --limit 10 --verified-only
+python3 -m src.orchestration.evaluation_cli backlog-enroll --job-ids 1,2 --max-jobs 10 --token-limit 50000 --confirm
+```
+
+Claiming is a separate action. Use `gpt-5.6-terra` with low reasoning for the
+packet and submit structured results synchronously. Retry only validation-failed
+or confidence-below-threshold jobs with medium reasoning.
+
 ```bash
 python3 -m src.validators.merge --file data/staging/job_evaluations_<run_id>.json
 python -m src.llm.score_jobs --limit 10
