@@ -17,7 +17,82 @@ JOB_POSTINGS_COLUMNS: dict[str, str] = {
     "description_error": "TEXT",
 }
 
-MIGRATION_VERSION = 10
+MIGRATION_VERSION = 11
+
+JOB_EVALUATION_DDL = """
+CREATE TABLE IF NOT EXISTS job_evaluation_queue (
+    queue_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('queued','deferred','claimed','completed','failed','cancelled')),
+    priority INTEGER NOT NULL DEFAULT 100,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 2,
+    requested_model TEXT NOT NULL DEFAULT 'gpt-5.6-terra',
+    requested_reasoning_effort TEXT NOT NULL DEFAULT 'low',
+    defer_reason TEXT,
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    last_error TEXT,
+    eligible_at TEXT,
+    claimed_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(job_id) REFERENCES job_postings(job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_job_evaluation_queue_status
+    ON job_evaluation_queue(status, priority, eligible_at);
+CREATE INDEX IF NOT EXISTS idx_job_evaluation_queue_lease
+    ON job_evaluation_queue(lease_expires_at);
+
+CREATE TABLE IF NOT EXISTS job_evaluation_runs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('running','completed','budget_exhausted','failed','cancelled')),
+    trigger TEXT NOT NULL DEFAULT 'manual',
+    model TEXT NOT NULL DEFAULT 'gpt-5.6-terra',
+    reasoning_effort TEXT NOT NULL DEFAULT 'low',
+    max_jobs INTEGER,
+    estimated_token_limit INTEGER,
+    jobs_attempted INTEGER NOT NULL DEFAULT 0,
+    jobs_completed INTEGER NOT NULL DEFAULT 0,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    usage_provenance TEXT NOT NULL DEFAULT 'unavailable'
+        CHECK (usage_provenance IN ('measured','estimated','unavailable','mixed')),
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT,
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_evaluation_runs_started
+    ON job_evaluation_runs(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS job_evaluation_attempts (
+    attempt_id INTEGER PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    queue_id INTEGER NOT NULL,
+    job_id INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    reasoning_effort TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('running','completed','failed','escalated')),
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TEXT,
+    duration_ms INTEGER,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    usage_provenance TEXT NOT NULL DEFAULT 'unavailable'
+        CHECK (usage_provenance IN ('measured','estimated','unavailable')),
+    escalation_reason TEXT,
+    validation_outcome TEXT,
+    error TEXT,
+    FOREIGN KEY(run_id) REFERENCES job_evaluation_runs(run_id),
+    FOREIGN KEY(queue_id) REFERENCES job_evaluation_queue(queue_id),
+    FOREIGN KEY(job_id) REFERENCES job_postings(job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_job_evaluation_attempts_run
+    ON job_evaluation_attempts(run_id, attempt_id);
+CREATE INDEX IF NOT EXISTS idx_job_evaluation_attempts_job
+    ON job_evaluation_attempts(job_id, attempt_id);
+"""
 
 TRACKED_JOBS_DDL = """
 CREATE TABLE IF NOT EXISTS tracked_jobs (
@@ -351,6 +426,19 @@ def apply_migrations(connection: sqlite3.Connection) -> list[str]:
             )
         connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (10,))
         changes.append("schema_migrations.version=10")
+        version = 10
+
+    if version < 11:
+        connection.executescript(JOB_EVALUATION_DDL)
+        connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (11,))
+        changes.extend(
+            (
+                "job_evaluation_queue",
+                "job_evaluation_runs",
+                "job_evaluation_attempts",
+                "schema_migrations.version=11",
+            )
+        )
 
     return changes
 
