@@ -16,6 +16,8 @@
 - Escalation uses `gpt-5.6-terra` with `medium` reasoning only for configured uncertainty or validation failures.
 - Exact token usage must be labelled `measured`; tokenizer-derived usage must be labelled `estimated`; otherwise use `unavailable`.
 - Stop before claiming work that would exceed a run's configured job or estimated-token ceiling.
+- Never enroll historical jobs during migration, application startup, or worker startup.
+- Historical backlog enrollment requires preview, bounded selection, projected usage, and explicit user confirmation; enrollment never starts a worker.
 - Ollama remains legacy/manual and is not an automatic evaluation path.
 - Preserve the unrelated local modification to `data/company_inventory.csv`.
 
@@ -264,7 +266,7 @@ git commit -m "feat: add budget-aware evaluation worker"
 **Interfaces:**
 - Consumes queue completion APIs and `JobFitResult` validation.
 - Produces `submit_job_evaluations(run_id: str, queue_ids: list[int], payload: list[dict], usage: UsageRecord, *, connection=None) -> SubmissionResult`.
-- Produces CLI actions `backfill`, `claim`, `submit`, `fail`, `retry`, and `status`.
+- Produces CLI actions `backlog-preview`, `backlog-enroll`, `claim`, `submit`, `fail`, `retry`, and `status`.
 
 - [ ] **Step 1: Write failing atomic-submission tests**
 
@@ -291,6 +293,10 @@ python3 -m src.orchestration.evaluation_cli claim --run-id "$RUN_ID" --worker-id
 python3 -m src.orchestration.evaluation_cli submit --run-id "$RUN_ID" --queue-ids 1,2 --file /tmp/job-results.json --model gpt-5.6-terra --reasoning low
 ```
 
+`backlog-preview` is read-only. `backlog-enroll` requires explicit job IDs from
+a prior preview plus `--confirm`; it must reject an unbounded request. Neither
+command starts a worker.
+
 Update the skill to use the claim/submit boundary, default to Terra/low, and retry only flagged jobs with Terra/medium.
 
 - [ ] **Step 5: Run submission and CLI tests**
@@ -316,7 +322,7 @@ git commit -m "feat: submit agent evaluations transactionally"
 
 **Interfaces:**
 - Consumes queue/run/attempt tables from Tasks 1–5.
-- Produces `load_queue_metrics`, `load_recent_evaluation_runs`, `load_model_efficiency`, `load_problem_items`, and `render_operations_view`.
+- Produces `load_queue_metrics`, `load_recent_evaluation_runs`, `load_model_efficiency`, `load_problem_items`, `preview_backlog`, `enroll_backlog`, and `render_operations_view`.
 
 - [ ] **Step 1: Write failing aggregation tests**
 
@@ -335,6 +341,10 @@ assert efficiency.iloc[0]["usage_provenance"] in {"measured", "estimated", "mixe
 ```
 
 Test retry/defer/cancel UI actions through repository functions, not raw SQL.
+Test that backlog preview is read-only, newest-first, and filterable by verified
+description, source, company, and minimum keyword score. Test that enrollment
+rejects missing confirmation, an empty selection, and projected usage above the
+user-selected ceiling.
 
 - [ ] **Step 2: Run focused tests and verify failure**
 
@@ -348,7 +358,15 @@ Return dataclasses for headline metrics and pandas DataFrames for run/model/prob
 
 - [ ] **Step 4: Build and register the Streamlit view**
 
-Add `"Operations": render_operations_view` to `PAGES`. Render queue metric cards, budget projection, recent runs, per-model efficiency, failed/deferred drill-down, and guarded retry/defer/cancel buttons. Display `measured`, `estimated`, or `unavailable` beside every usage/cost value. Show a copyable `evaluation_cli` command rather than trying to launch Codex.
+Add `"Operations": render_operations_view` to `PAGES`. Render queue metric cards, budget projection, recent runs, per-model efficiency, failed/deferred drill-down, and guarded retry/defer/cancel buttons. Display `measured`, `estimated`, or `unavailable` beside every usage/cost value.
+
+Add a separate **Historical backlog** panel. Default to newest jobs with verified
+descriptions, allow source/company/minimum-keyword-score filters and row
+selection, require maximum jobs and an estimated-token ceiling, show the
+projection, and require an explicit confirmation checkbox before enabling
+**Enroll selected jobs**. Enrollment must not launch evaluation. Show a copyable
+`evaluation_cli` command for the separately initiated capped run rather than
+trying to launch Codex.
 
 - [ ] **Step 5: Run UI data and dashboard import tests**
 
@@ -363,7 +381,7 @@ git add src/ui/operations_data.py src/ui/operations_view.py app/dashboard.py tes
 git commit -m "feat: add evaluation operations dashboard"
 ```
 
-### Task 7: Backfill, end-to-end verification, and documentation
+### Task 7: Backlog enrollment, end-to-end verification, and documentation
 
 **Files:**
 - Modify: `tests/test_pipeline_integration.py`
@@ -388,7 +406,7 @@ Expected: FAIL until all lifecycle and telemetry integrations are complete.
 
 - [ ] **Step 3: Complete integration wiring and documentation**
 
-Document the three new canonical SQLite tables in `DATA_CONTRACT.md`. Update the MVP workflow and commands in `AGENTS.md` to use `evaluation_cli backfill/claim/submit`; label `src.llm.score_jobs` legacy/manual. Change ADR-020 status from `Proposed` to `Accepted` and update its index status after implementation passes.
+Document the three new canonical SQLite tables in `DATA_CONTRACT.md`. Update the MVP workflow and commands in `AGENTS.md` to use `evaluation_cli backlog-preview/backlog-enroll/claim/submit`; label `src.llm.score_jobs` legacy/manual. State explicitly that migration and startup never enroll the historical backlog. Change ADR-020 status from `Proposed` to `Accepted` and update its index status after implementation passes.
 
 - [ ] **Step 4: Run focused and full verification**
 
@@ -402,15 +420,17 @@ python3 -m src.orchestration.evaluation_cli status
 
 Expected: all tests PASS; status prints valid JSON without mutating queue state.
 
-- [ ] **Step 5: Perform a safe dry backfill preview**
+- [ ] **Step 5: Perform a safe read-only backlog preview**
 
 Run:
 
 ```bash
-python3 -m src.orchestration.evaluation_cli backfill --dry-run
+python3 -m src.orchestration.evaluation_cli backlog-preview --limit 10 --verified-only
 ```
 
-Expected: prints counts for eligible, deferred, already evaluated, and inactive jobs without database writes. Do not run the mutating backfill until the user reviews the preview.
+Expected: prints counts for eligible, deferred, already evaluated, and inactive
+jobs without database writes. Do not run `backlog-enroll` until the user reviews
+the preview and explicitly chooses the bounded subset.
 
 - [ ] **Step 6: Commit**
 

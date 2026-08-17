@@ -25,7 +25,8 @@ measurements from estimates.
   work.
 - Expose queue health, run history, model use, throughput, retries, and token or
   cost estimates in the existing Streamlit dashboard.
-- Backfill the current unevaluated-job backlog safely and idempotently.
+- Preview and selectively enroll the current unevaluated-job backlog through an
+  explicit, confirmed user action.
 
 ## Non-goals
 
@@ -56,10 +57,17 @@ Supported states are `queued`, `deferred`, `claimed`, `completed`, `failed`, and
 Material description changes reactivate the existing queue item and clear the
 stale evaluation rather than inserting a second item.
 
-`save_jobs` enqueues newly inserted active jobs. A job with a current verified
-description becomes `queued`; a job without one becomes `deferred`. Description
-enrichment promotes deferred jobs to queued. Authoritative expiration cancels
-pending work. A one-time CLI backfills active jobs whose `evaluated_at` is null.
+`save_jobs` enqueues newly inserted active jobs. Queue insertion does not launch
+an agent or consume model tokens. A job with a current verified description
+becomes `queued`; a job without one becomes `deferred`. Description enrichment
+promotes deferred jobs to queued. Authoritative expiration cancels pending work.
+Schema migration, application startup, and worker startup never enroll
+historical jobs automatically.
+
+Historical jobs are enrolled only after the user previews eligible records,
+filters or selects the desired subset, sets maximum-job and estimated-token
+limits, and confirms the action. Enrollment and evaluation execution are
+separate actions: enrolling work does not start a Codex worker.
 
 ### Agent worker boundary
 
@@ -136,6 +144,9 @@ Add an **Operations** page to the existing Streamlit dashboard with:
   rate, and estimated cost where configured
 - drill-down tables for failed/deferred items and their reasons
 - manual retry, defer, and cancel controls implemented through Python queue APIs
+- a backlog preview with newest-first ordering, verified-description and source
+  filters, minimum keyword score, row selection, maximum jobs, projected tokens,
+  and explicit confirmation before enrollment
 - a copyable command or agent instruction for starting the next evaluation run
 
 The dashboard reports state and manages deterministic queue controls. It does
@@ -200,4 +211,5 @@ manual transition APIs. An integration test exercises discovery → queue → cl
 2. Wire discovery, enrichment, expiration, and evaluation merge transitions.
 3. Add backlog and worker CLIs and update the agent evaluation skill.
 4. Add token estimation, model-rate configuration, and the Operations page.
-5. Backfill active unevaluated jobs and run a small capped evaluation batch.
+5. Preview historical unevaluated jobs, explicitly enroll a small selected
+   subset, and run a separately confirmed capped evaluation batch.

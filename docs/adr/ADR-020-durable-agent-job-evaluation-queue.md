@@ -36,6 +36,11 @@ usage as measured, estimated, or unavailable, and calculate dollar estimates
 only from explicitly configured model rates. Surface queue health and run/model
 efficiency in an Operations page in the existing Streamlit dashboard.
 
+Do not automatically enroll historical unevaluated jobs during migration,
+startup, or worker execution. Backlog enrollment requires a preview, explicit
+selection or bounded filters, projected usage, and user confirmation. Queue
+enrollment never starts model execution by itself.
+
 ## Alternatives considered
 
 | Option | Pros | Cons |
