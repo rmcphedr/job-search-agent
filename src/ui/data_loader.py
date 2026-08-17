@@ -586,6 +586,35 @@ def get_job_by_id(job_id: int | str) -> dict[str, Any] | None:
     return matches.iloc[0].to_dict()
 
 
+def get_current_job_by_id(job_id: int | str) -> dict[str, Any] | None:
+    """Load one current job record directly from SQLite, bypassing collection caches."""
+    try:
+        normalized_job_id = int(job_id)
+    except (TypeError, ValueError):
+        return None
+
+    query = JOBS_QUERY.rsplit("ORDER BY", maxsplit=1)[0] + "WHERE j.job_id = ?;"
+    connection = get_connection()
+    try:
+        frame = pd.read_sql_query(query, connection, params=(normalized_job_id,))
+    finally:
+        connection.close()
+
+    if frame.empty:
+        return None
+
+    row = frame.iloc[0].to_dict()
+    if pd.isna(row.get("description")):
+        row["description"] = None
+    if pd.isna(row.get("matched_keywords")):
+        row["matched_keywords"] = ""
+    parsed_reason = parse_fit_reason(row.get("fit_reason"))
+    row["provider"] = parsed_reason.get("provider")
+    if not str(row.get("matched_keywords") or "").strip():
+        row["matched_keywords"] = parsed_reason.get("matched_keywords")
+    return row
+
+
 def get_company_run_history(company_name: str) -> list[dict[str, object]]:
     runs = load_run_history()
     if runs.empty:
