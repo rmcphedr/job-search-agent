@@ -1,6 +1,6 @@
 # ADR-020: Durable agent job evaluation queue
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-08-17
 **Deciders:** Project maintainer
 **Supersedes:** None

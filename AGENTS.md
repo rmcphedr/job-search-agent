@@ -115,6 +115,17 @@ Agent scores active jobs against the user profile.
 python -m src.llm.score_jobs --limit 10
 ```
 
+Primary agent queue workflow:
+
+```bash
+python3 -m src.orchestration.evaluation_cli backlog-preview --limit 10 --verified-only
+python3 -m src.orchestration.evaluation_cli backlog-enroll --job-ids 1,2 --max-jobs 10 --token-limit 50000 --confirm
+python3 -m src.orchestration.evaluation_cli claim --worker-id codex
+```
+
+Historical jobs are never enrolled by migration or startup, and enrollment never
+starts a model run. `src.llm.score_jobs` is a legacy/manual Ollama fallback.
+
 Reports: `reports/job_fit/<job_slug>_<timestamp>.md`
 
 ### Step 5 — Ranking

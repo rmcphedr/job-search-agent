@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+import sqlite3
 from typing import Any
 
 from src.database.db import get_connection
@@ -41,9 +42,10 @@ def list_application_facts() -> list[dict[str, Any]]:
         connection.close()
 
 
-def record_application_event(event_type: str, *, job_id: int | None = None, provider: str = "", target_key: str = "", outcome: str = "success", details: dict[str, Any] | None = None) -> None:
+def record_application_event(event_type: str, *, job_id: int | None = None, provider: str = "", target_key: str = "", outcome: str = "success", details: dict[str, Any] | None = None, connection: sqlite3.Connection | None = None) -> None:
     """Append an audit event. Details must not contain field values or secrets."""
-    connection = get_connection()
+    owned = connection is None
+    connection = connection or get_connection()
     try:
         apply_migrations(connection)
         connection.execute(
@@ -52,9 +54,11 @@ def record_application_event(event_type: str, *, job_id: int | None = None, prov
             VALUES (?, ?, ?, ?, ?, ?);""",
             (job_id, provider, event_type, target_key, outcome, json.dumps(details or {})),
         )
-        connection.commit()
+        if owned:
+            connection.commit()
     finally:
-        connection.close()
+        if owned:
+            connection.close()
 
 
 def list_application_events(job_id: int) -> list[dict[str, Any]]:

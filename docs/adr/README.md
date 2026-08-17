@@ -65,7 +65,7 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-017](ADR-017-resume-pipeline-bridge.md) | Resume pipeline request/result bridge | Accepted |
 | [ADR-018](ADR-018-job-description-enrichment.md) | Shared job-description enrichment and expiration | Accepted |
 | [ADR-019](ADR-019-human-reviewed-application-agent.md) | Human-reviewed application agent | Accepted |
-| [ADR-020](ADR-020-durable-agent-job-evaluation-queue.md) | Durable agent job evaluation queue | Proposed |
+| [ADR-020](ADR-020-durable-agent-job-evaluation-queue.md) | Durable agent job evaluation queue | Accepted |
 
 ## Related documents
 
