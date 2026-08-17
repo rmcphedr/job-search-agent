@@ -53,7 +53,7 @@ from src.integrations.resume_pipeline import (
 )
 from src.jobs.description_enrichment import mark_job_expired
 from src.ui.actions import refresh_data
-from src.ui.data_loader import get_job_by_id
+from src.ui.data_loader import get_current_job_by_id
 from src.ui.review_view import render_job_summary_card
 from src.ui.theme import inject_tracking_theme
 
@@ -121,11 +121,10 @@ def _render_table_view() -> None:
 
 
 def _render_detail_view(job_id: int) -> None:
-    job = get_job_by_id(job_id)
+    job = get_current_job_by_id(job_id)
     tracked = get_tracked_job(job_id)
     if job is None or tracked is None:
-        st.error("This tracked job is no longer available.")
-        _back_to_table()
+        _render_unavailable_job()
         return
 
     if st.button("← All tracked jobs"):
@@ -274,11 +273,11 @@ def submission_file_key(path: Path) -> str:
 
 
 def _render_preparation_view(job_id: int) -> None:
-    job = get_job_by_id(job_id)
+    job = get_current_job_by_id(job_id)
     tracked = get_tracked_job(job_id)
     if job is None or tracked is None:
-        _back_to_table()
-        st.rerun()
+        _render_unavailable_job()
+        return
 
     if st.button("← Job details"):
         st.session_state.tracking_view_mode = "detail"
@@ -471,7 +470,7 @@ def _render_workspace_section(job_id: int, section: str, fields: list[dict]) -> 
 def _render_resume_controls(job_id: int, value: str) -> None:
     button_label = "Regenerate tailored resume" if editable_resume_path(value) else "Generate tailored resume"
     if st.button(button_label, type="primary", key=f"generate_resume_workspace_{job_id}"):
-        job = get_job_by_id(job_id)
+        job = get_current_job_by_id(job_id)
         if job is None:
             st.error("Job details are unavailable.")
             return
@@ -496,7 +495,7 @@ def _render_resume_controls(job_id: int, value: str) -> None:
 def _render_cover_letter_controls(job_id: int, value: str) -> None:
     button_label = "Regenerate cover letter" if editable_resume_path(value) else "Generate cover letter"
     if st.button(button_label, type="primary", key=f"generate_cover_letter_{job_id}"):
-        job = get_job_by_id(job_id)
+        job = get_current_job_by_id(job_id)
         if job is None:
             st.error("Job details are unavailable.")
             return
@@ -619,7 +618,7 @@ def _render_preparation_step(job_id: int, step: dict) -> None:
                 "resume-generation pipeline, then validates and builds the DOCX."
             )
             if st.button("Generate tailored resume", type="primary", key=f"run_resume_agent_{job_id}"):
-                job = get_job_by_id(job_id)
+                job = get_current_job_by_id(job_id)
                 if job is None:
                     st.error("Job details are unavailable.")
                 else:
@@ -722,3 +721,10 @@ def _tracking_frame(rows: list[dict]) -> pd.DataFrame:
 def _back_to_table() -> None:
     st.session_state.tracking_view_mode = "table"
     st.session_state.tracking_selected_job_id = None
+
+
+def _render_unavailable_job() -> None:
+    st.error("This tracked job is no longer available.")
+    if st.button("← All tracked jobs"):
+        _back_to_table()
+        st.rerun()
