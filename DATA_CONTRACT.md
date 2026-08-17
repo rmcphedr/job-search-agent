@@ -202,6 +202,18 @@ Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jo
 | `description_checked_at` | iso datetime | Latest enrichment attempt |
 | `description_error` | string | Failure or expiration reason |
 
+### SQLite agent evaluation operations
+
+Python exclusively owns three operational tables: `job_evaluation_queue`
+(durable state and leases), `job_evaluation_runs` (model policy, caps, aggregate
+usage), and `job_evaluation_attempts` (per-job model, reasoning, validation, and
+token telemetry). Agents submit typed `JobFitResult` objects through
+`src.orchestration.evaluation_submission`; they do not issue arbitrary SQL.
+
+Historical jobs are never enrolled by migration or startup. Backlog enrollment
+requires preview, a bounded job selection, a token ceiling, and explicit
+confirmation. Enrollment does not start model execution.
+
 ### SQLite `employer_ats_sources` row (canonical)
 
 Python-owned registry of employer-specific Greenhouse, Lever, Ashby, and
