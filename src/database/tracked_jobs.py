@@ -10,7 +10,7 @@ from src.database.db import get_connection
 TRACKING_STAGES: tuple[tuple[str, str], ...] = (
     ("tracked", "Tracked"),
     ("applying", "Applying"),
-    ("applied", "Applied"),
+    ("applied", "No response"),
     ("interviewing", "Interviewing"),
     ("accepted", "Accepted"),
     ("rejected", "Rejected"),
@@ -18,6 +18,7 @@ TRACKING_STAGES: tuple[tuple[str, str], ...] = (
 )
 
 TERMINAL_STAGES = frozenset({"rejected", "withdrawn", "accepted"})
+APPLICATION_STAGES = frozenset({"applied", "interviewing", "accepted", "rejected", "withdrawn"})
 STAGE_LABELS = dict(TRACKING_STAGES)
 VALID_STAGES = frozenset(STAGE_LABELS)
 
@@ -68,7 +69,7 @@ def track_job(
     """Add a job to the tracking inventory or return the existing row."""
     normalized_stage = _normalize_stage(stage)
     now = _utc_now()
-    applied_at = now if normalized_stage == "applied" else None
+    applied_at = now if normalized_stage in APPLICATION_STAGES else None
 
     connection = get_connection()
     try:
@@ -86,6 +87,18 @@ def track_job(
             """,
             (job_id, normalized_stage, notes, applied_at, now, now),
         )
+        if normalized_stage in APPLICATION_STAGES:
+            connection.execute(
+                """INSERT INTO application_stage_history (job_id, stage, entered_at)
+                VALUES (?, 'applied', ?);""",
+                (job_id, now),
+            )
+            if normalized_stage != "applied":
+                connection.execute(
+                    """INSERT INTO application_stage_history (job_id, stage, entered_at)
+                    VALUES (?, ?, ?);""",
+                    (job_id, normalized_stage, now),
+                )
         connection.commit()
         tracked_id = int(cursor.lastrowid)
         row = connection.execute(
@@ -101,6 +114,10 @@ def untrack_job(job_id: int) -> bool:
     """Remove a job from tracking. Returns True when a row was deleted."""
     connection = get_connection()
     try:
+        connection.execute(
+            "DELETE FROM application_stage_history WHERE job_id = ?;",
+            (job_id,),
+        )
         cursor = connection.execute(
             "DELETE FROM tracked_jobs WHERE job_id = ?;",
             (job_id,),
@@ -119,7 +136,7 @@ def update_tracked_stage(job_id: int, stage: str) -> dict[str, Any] | None:
     connection = get_connection()
     try:
         row = connection.execute(
-            "SELECT tracked_id, applied_at FROM tracked_jobs WHERE job_id = ?;",
+            "SELECT tracked_id, stage, applied_at FROM tracked_jobs WHERE job_id = ?;",
             (job_id,),
         ).fetchone()
         if row is None:
@@ -137,6 +154,14 @@ def update_tracked_stage(job_id: int, stage: str) -> dict[str, Any] | None:
             """,
             (normalized_stage, applied_at, now, job_id),
         )
+        if normalized_stage != str(row["stage"]):
+            connection.execute(
+                """
+                INSERT INTO application_stage_history (job_id, stage, entered_at)
+                VALUES (?, ?, ?);
+                """,
+                (job_id, normalized_stage, now),
+            )
         connection.commit()
         updated = connection.execute(
             "SELECT * FROM tracked_jobs WHERE job_id = ?;",
@@ -232,5 +257,40 @@ def list_tracked_jobs() -> list[dict[str, Any]]:
             """
         ).fetchall()
         return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def list_application_stage_history() -> list[dict[str, Any]]:
+    """Return every recorded stage transition in chronological order."""
+    connection = get_connection()
+    try:
+        rows = connection.execute(
+            """
+            SELECT history_id, job_id, stage, entered_at
+            FROM application_stage_history
+            ORDER BY entered_at, history_id;
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def record_application_stage_event(
+    job_id: int, stage: str, *, entered_at: str | None = None
+) -> None:
+    """Record a known historical stage without changing the current stage."""
+    normalized_stage = _normalize_stage(stage)
+    connection = get_connection()
+    try:
+        connection.execute(
+            """
+            INSERT INTO application_stage_history (job_id, stage, entered_at)
+            VALUES (?, ?, ?);
+            """,
+            (job_id, normalized_stage, entered_at or _utc_now()),
+        )
+        connection.commit()
     finally:
         connection.close()

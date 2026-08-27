@@ -16,6 +16,12 @@ Future phases will add qualification scoring, resume tailoring, and application 
 2. Python module `src/database/tracked_jobs.py` owns all CRUD; agents do not write this table.
 3. Dashboard adds a **Tracking** page (default nav) with a main-area pipeline board by stage (teal-themed UI via `.streamlit/config.toml` + `src/ui/theme.py`). Job browsing stays on the **Jobs** tab.
 4. Job detail view exposes the same track / stage controls.
+5. Keep `tracked_jobs.stage` as the current-state snapshot and append every
+   submitted-or-later transition to `application_stage_history`. Analytics use
+   the history table so later outcomes do not erase earlier interview activity.
+6. The initial post-submission state is displayed as **No response** (stored as
+   `applied` for compatibility). A submitted application may then transition to
+   interviewing, rejected, withdrawn, or accepted.
 
 ### Stages
 
@@ -37,6 +43,7 @@ Terminal: `rejected`, `withdrawn`
 - Clean separation: discovery data vs user pipeline state
 - Joins keep company/title/url current when postings update
 - Extensible for future resume/application features on same `job_id`
+- Historical funnels and interview counts remain accurate after an application closes
 
 ### Negative / trade-offs
 
@@ -51,7 +58,7 @@ Terminal: `rejected`, `withdrawn`
 
 ## Implementation notes
 
-- Schema: `src/database/schema.sql`, migration v2 in `src/database/migrate.py`
+- Schema: `src/database/schema.sql`; tracked jobs migration v2 and stage-history migration v12 in `src/database/migrate.py`
 - CRUD: `src/database/tracked_jobs.py`
 - UI: `src/ui/tracking_view.py`, `src/ui/theme.py`
 - Entry: `app/dashboard.py` — **Tracking** first in navigation

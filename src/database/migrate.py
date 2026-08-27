@@ -17,7 +17,21 @@ JOB_POSTINGS_COLUMNS: dict[str, str] = {
     "description_error": "TEXT",
 }
 
-MIGRATION_VERSION = 11
+MIGRATION_VERSION = 12
+
+APPLICATION_STAGE_HISTORY_DDL = """
+CREATE TABLE IF NOT EXISTS application_stage_history (
+    history_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    entered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+);
+CREATE INDEX IF NOT EXISTS idx_application_stage_history_job
+    ON application_stage_history (job_id, entered_at, history_id);
+CREATE INDEX IF NOT EXISTS idx_application_stage_history_stage
+    ON application_stage_history (stage);
+"""
 
 JOB_EVALUATION_DDL = """
 CREATE TABLE IF NOT EXISTS job_evaluation_queue (
@@ -443,6 +457,34 @@ def apply_migrations(connection: sqlite3.Connection) -> list[str]:
                 "schema_migrations.version=11",
             )
         )
+        version = 11
+
+    if version < 12:
+        connection.executescript(APPLICATION_STAGE_HISTORY_DDL)
+        if _column_exists(connection, "tracked_jobs", "applied_at"):
+            connection.execute(
+                """
+                INSERT INTO application_stage_history (job_id, stage, entered_at)
+                SELECT job_id, 'applied', applied_at
+                FROM tracked_jobs
+                WHERE applied_at IS NOT NULL;
+                """
+            )
+            current_stage_time = (
+                "COALESCE(updated_at, applied_at, CURRENT_TIMESTAMP)"
+                if _column_exists(connection, "tracked_jobs", "updated_at")
+                else "COALESCE(applied_at, CURRENT_TIMESTAMP)"
+            )
+            connection.execute(
+                f"""
+                INSERT INTO application_stage_history (job_id, stage, entered_at)
+                SELECT job_id, stage, {current_stage_time}
+                FROM tracked_jobs
+                WHERE applied_at IS NOT NULL AND stage <> 'applied';
+                """
+            )
+        connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (12,))
+        changes.extend(("application_stage_history", "schema_migrations.version=12"))
 
     return changes
 

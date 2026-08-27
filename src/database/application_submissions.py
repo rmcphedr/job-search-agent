@@ -63,6 +63,11 @@ def record_application_submission(
             (submitted_at, submitted_at, job_id),
         )
         connection.execute(
+            """INSERT INTO application_stage_history (job_id, stage, entered_at)
+            VALUES (?, 'applied', ?);""",
+            (job_id, submitted_at),
+        )
+        connection.execute(
             """UPDATE application_sessions SET status = 'submitted', current_page = 'success',
             updated_at = ? WHERE job_id = ?;""",
             (submitted_at, job_id),

@@ -117,6 +117,19 @@ CREATE TABLE IF NOT EXISTS tracked_jobs (
 CREATE INDEX IF NOT EXISTS idx_tracked_jobs_stage ON tracked_jobs (stage);
 CREATE INDEX IF NOT EXISTS idx_tracked_jobs_job_id ON tracked_jobs (job_id);
 
+CREATE TABLE IF NOT EXISTS application_stage_history (
+    history_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    entered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_stage_history_job
+    ON application_stage_history (job_id, entered_at, history_id);
+CREATE INDEX IF NOT EXISTS idx_application_stage_history_stage
+    ON application_stage_history (stage);
+
 CREATE TABLE IF NOT EXISTS job_reviews (
     review_id INTEGER PRIMARY KEY,
     job_id INTEGER NOT NULL UNIQUE,

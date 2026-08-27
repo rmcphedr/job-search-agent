@@ -244,9 +244,23 @@ User-owned application pipeline state. Python CRUD only (`src/database/tracked_j
 | `job_id` | int | FK → `job_postings`, unique |
 | `stage` | string | `tracked`, `applying`, `applied`, `interviewing`, `accepted`, `rejected`, `withdrawn` |
 | `notes` | string | Optional free text |
-| `applied_at` | iso datetime | Set when stage becomes `applied` |
+| `applied_at` | iso datetime | Set when the application first reaches a submitted-or-later stage |
 | `created_at` | iso datetime | |
 | `updated_at` | iso datetime | |
+
+### SQLite `application_stage_history` row (user workflow)
+
+Append-only application milestones used for historical funnel analytics. Python
+CRUD only (`src/database/tracked_jobs.py`); `tracked_jobs.stage` remains the
+current-state snapshot. The stored `applied` milestone is displayed as **No
+response** in application analytics.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `history_id` | int | Auto |
+| `job_id` | int | FK → `job_postings` |
+| `stage` | string | Stage entered at this milestone |
+| `entered_at` | iso datetime | When the application entered the stage |
 
 ### SQLite `job_reviews` row (user workflow)
 

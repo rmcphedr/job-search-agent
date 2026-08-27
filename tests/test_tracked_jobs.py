@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from src.database.tracked_jobs import (
+    STAGE_LABELS,
+    list_application_stage_history,
     list_tracked_jobs,
     track_job,
     track_jobs,
@@ -16,6 +18,10 @@ from src.database.tracked_jobs import (
     update_tracked_notes,
     update_tracked_stage,
 )
+
+
+def test_submitted_application_stage_is_labeled_no_response() -> None:
+    assert STAGE_LABELS["applied"] == "No response"
 
 
 @pytest.fixture()
@@ -49,6 +55,13 @@ def tracking_db(tmp_path: Path) -> Path:
             applied_at TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+        );
+        CREATE TABLE application_stage_history (
+            history_id INTEGER PRIMARY KEY,
+            job_id INTEGER NOT NULL,
+            stage TEXT NOT NULL,
+            entered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
         );
         INSERT INTO companies (company_id, company_name, website)
@@ -85,6 +98,16 @@ def test_track_and_list_job(tracking_db: Path, monkeypatch: pytest.MonkeyPatch) 
     assert rows[0]["company_name"] == "Example Bio"
 
 
+def test_tracking_as_applied_records_initial_no_response_stage(
+    tracking_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.database.tracked_jobs.get_connection", lambda: _connect(tracking_db))
+
+    track_job(10, stage="applied")
+
+    assert [event["stage"] for event in list_application_stage_history()] == ["applied"]
+
+
 def test_update_stage_sets_applied_at(tracking_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("src.database.tracked_jobs.get_connection", lambda: _connect(tracking_db))
     track_job(10)
@@ -93,6 +116,24 @@ def test_update_stage_sets_applied_at(tracking_db: Path, monkeypatch: pytest.Mon
     assert updated is not None
     assert updated["stage"] == "applied"
     assert updated["applied_at"] is not None
+
+
+def test_stage_updates_preserve_the_full_application_journey(
+    tracking_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.database.tracked_jobs.get_connection", lambda: _connect(tracking_db))
+    track_job(10)
+
+    update_tracked_stage(10, "applied")
+    update_tracked_stage(10, "interviewing")
+    update_tracked_stage(10, "rejected")
+
+    history = list_application_stage_history()
+    assert [event["stage"] for event in history if event["job_id"] == 10] == [
+        "applied",
+        "interviewing",
+        "rejected",
+    ]
 
 
 def test_notes_and_untrack(tracking_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,6 +146,7 @@ def test_notes_and_untrack(tracking_db: Path, monkeypatch: pytest.MonkeyPatch) -
 
     assert untrack_job(10) is True
     assert list_tracked_jobs() == []
+    assert list_application_stage_history() == []
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from src.database.db import get_connection
-from src.database.migrate import apply_migrations
+from src.database.migrate import MIGRATION_VERSION, apply_migrations
 from src.ui.operations_data import enroll_backlog, load_queue_metrics, preview_backlog
 
 
@@ -38,5 +38,5 @@ def test_owned_metrics_connection_persists_pending_migration(tmp_path, monkeypat
     load_queue_metrics()
 
     reopened = get_connection(db_path)
-    assert reopened.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 11
+    assert reopened.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == MIGRATION_VERSION
     assert reopened.execute("SELECT count(*) FROM job_evaluation_queue").fetchone()[0] == 0

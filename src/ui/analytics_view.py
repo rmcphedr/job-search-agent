@@ -7,7 +7,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.database.tracked_jobs import STAGE_LABELS, list_tracked_jobs
+from src.database.tracked_jobs import (
+    STAGE_LABELS,
+    list_application_stage_history,
+    list_tracked_jobs,
+)
 from src.ui.data_loader import load_analytics_data
 from src.ui.job_detail_view import render_job_detail_view
 from src.ui.session_utils import select_job
@@ -129,28 +133,40 @@ def _render_applied_jobs_flow() -> None:
     )
     try:
         tracked = list_tracked_jobs()
+        history = list_application_stage_history()
     except Exception as exc:
         st.error(f"Failed to load tracked applications: {exc}")
         return
 
-    labels, stages, counts, applied_jobs = _build_application_flow(tracked)
+    labels, sources, targets, counts, applied_jobs = _build_application_flow(tracked, history)
     if not applied_jobs:
         st.info("No applied jobs yet. Mark a tracked job as Applied to start the flow.")
         return
 
     total = len(applied_jobs)
     stage_counts = pd.Series([row["stage"] for row in applied_jobs]).value_counts()
+    interviewed_job_ids = {
+        int(event["job_id"]) for event in history if event.get("stage") == "interviewing"
+    }
+    interviewed_companies = {
+        row["company_id"] for row in applied_jobs if int(row["job_id"]) in interviewed_job_ids
+    }
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Applications", total)
-    m2.metric("Interviewing", int(stage_counts.get("interviewing", 0)))
+    m2.metric("Companies interviewed with", len(interviewed_companies))
     m3.metric("Offers", int(stage_counts.get("accepted", 0)))
     m4.metric(
         "Closed",
         int(stage_counts.get("rejected", 0) + stage_counts.get("withdrawn", 0)),
     )
 
-    node_colors = [TEAL_PRIMARY, *[STAGE_COLORS.get(stage, "#64748b") for stage in stages]]
-    link_colors = [_hex_to_rgba(color, 0.38) for color in node_colors[1:]]
+    color_by_label = {
+        "Applications submitted": TEAL_PRIMARY,
+        "No response": STAGE_COLORS.get("applied", TEAL_PRIMARY),
+        **{STAGE_LABELS[stage]: STAGE_COLORS.get(stage, "#64748b") for stage in STAGE_LABELS},
+    }
+    node_colors = [color_by_label.get(label, "#64748b") for label in labels]
+    link_colors = [_hex_to_rgba(node_colors[target], 0.38) for target in targets]
     figure = go.Figure(
         go.Sankey(
             arrangement="snap",
@@ -162,8 +178,8 @@ def _render_applied_jobs_flow() -> None:
                 "line": {"color": "rgba(15, 23, 42, 0.18)", "width": 1},
             },
             link={
-                "source": [0] * len(counts),
-                "target": list(range(1, len(counts) + 1)),
+                "source": sources,
+                "target": targets,
                 "value": counts,
                 "color": link_colors,
             },
@@ -176,8 +192,7 @@ def _render_applied_jobs_flow() -> None:
     )
     st.plotly_chart(figure, width="stretch", config={"displayModeBar": False})
     st.caption(
-        "This is a current-state snapshot. The database records the latest stage and first applied date, "
-        "not every historical stage transition."
+        "The flow preserves every recorded stage transition; the table shows each application's current status."
     )
 
     detail = pd.DataFrame(applied_jobs)
@@ -196,20 +211,43 @@ def _render_applied_jobs_flow() -> None:
 
 def _build_application_flow(
     tracked: list[dict],
-) -> tuple[list[str], list[str], list[int], list[dict]]:
-    """Build stable Sankey nodes from jobs that have an application timestamp."""
+    history: list[dict],
+) -> tuple[list[str], list[int], list[int], list[int], list[dict]]:
+    """Build a Sankey from complete application journeys."""
     applied_jobs = [row for row in tracked if str(row.get("applied_at") or "").strip()]
-    ordered_stages = ("applied", "interviewing", "accepted", "rejected", "withdrawn")
-    counts_by_stage = pd.Series(
-        [str(row.get("stage") or "applied") for row in applied_jobs], dtype="object"
-    ).value_counts()
-    stages = [stage for stage in ordered_stages if int(counts_by_stage.get(stage, 0)) > 0]
-    labels = ["Applications submitted"] + [
-        "Applied — awaiting response" if stage == "applied" else STAGE_LABELS[stage]
-        for stage in stages
-    ]
-    counts = [int(counts_by_stage[stage]) for stage in stages]
-    return labels, stages, counts, applied_jobs
+    if not applied_jobs:
+        return ["Applications submitted"], [], [], [], []
+
+    stage_order = ("applied", "interviewing", "accepted", "rejected", "withdrawn")
+    stage_labels = {**STAGE_LABELS, "applied": "No response"}
+    events_by_job: dict[int, list[str]] = {}
+    applied_ids = {int(row["job_id"]) for row in applied_jobs}
+    for event in history:
+        job_id = int(event["job_id"])
+        stage = str(event["stage"])
+        if job_id in applied_ids and stage in stage_order:
+            journey = events_by_job.setdefault(job_id, [])
+            if not journey or journey[-1] != stage:
+                journey.append(stage)
+
+    edge_counts: dict[tuple[str, str], int] = {}
+    for job_id in applied_ids:
+        journey = events_by_job.get(job_id, ["applied"])
+        if not journey or journey[0] != "applied":
+            journey.insert(0, "applied")
+        path = ["submitted", *journey]
+        for edge in zip(path, path[1:]):
+            edge_counts[edge] = edge_counts.get(edge, 0) + 1
+
+    present_stages = [stage for stage in stage_order if any(stage in edge for edge in edge_counts)]
+    keys = ["submitted", *present_stages]
+    labels = ["Applications submitted", *[stage_labels[stage] for stage in present_stages]]
+    index = {key: position for position, key in enumerate(keys)}
+    ordered_edges = sorted(edge_counts, key=lambda edge: (index[edge[0]], index[edge[1]]))
+    sources = [index[source] for source, _ in ordered_edges]
+    targets = [index[target] for _, target in ordered_edges]
+    counts = [edge_counts[edge] for edge in ordered_edges]
+    return labels, sources, targets, counts, applied_jobs
 
 
 def _hex_to_rgba(color: str, alpha: float) -> str:
