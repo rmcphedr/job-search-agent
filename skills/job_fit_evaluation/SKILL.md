@@ -94,6 +94,44 @@ python -m src.llm.score_jobs --limit 10
 python -m src.llm.score_jobs --company "Valence Labs"
 ```
 
+### Scheduled daily batch
+
+The daily Codex opportunity scan may evaluate only jobs inserted or materially
+description-enriched by that same scan. After ranking the scan, retain an
+ordered list of three qualifying job IDs by default and add at most two
+credible runners-up. Do not fill the batch with weak jobs merely to reach five.
+
+Claim the selected jobs with both the scan run ID and the explicit job IDs:
+
+```bash
+python3 -m src.orchestration.evaluation_cli daily-claim \
+  --run-id <evaluation_run_id> \
+  --discovery-run-id <scan_run_id> \
+  --job-ids 1,2,3 \
+  --worker-id codex-scheduled
+```
+
+This command defaults to `gpt-5.6-luna`, low reasoning, five jobs maximum, and
+a 30,000 estimated-token ceiling. If the command returns no packet, stop; never
+replace it with the generic `claim` command or consume historical backlog work.
+
+Evaluate only jobs returned in the packet. Write their `JobFitResult` records
+to `data/staging/job_evaluations_<run_id>.json`, then submit exactly the packet's
+returned `queue_id` values:
+
+```bash
+python3 -m src.orchestration.evaluation_cli submit \
+  --run-id <evaluation_run_id> \
+  --queue-ids <returned_queue_ids> \
+  --file data/staging/job_evaluations_<run_id>.json \
+  --model gpt-5.6-luna \
+  --reasoning low
+```
+
+Do not use Ollama or an OpenAI API key for the scheduled daily batch. The Codex
+scheduled task performs the judgment and Python validates and writes canonical
+state.
+
 Export: `outputs/job_fit_scores.csv` (→ `data/job_evaluations.csv`).
 
 ## Next step
