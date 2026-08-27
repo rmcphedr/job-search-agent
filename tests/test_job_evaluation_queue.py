@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from src.database.migrate import apply_migrations
+from src.orchestration import job_evaluation_queue
 from src.orchestration.job_evaluation_queue import (
     claim_batch,
     complete_job,
@@ -114,6 +115,25 @@ def test_claim_is_exclusive_and_stale_claim_is_recoverable() -> None:
     connection.execute("UPDATE job_evaluation_queue SET lease_expires_at = datetime('now', '-1 minute') WHERE job_id = 1")
     assert release_stale_claims(connection=connection) == 1
     assert [item.job_id for item in claim_batch(run_id="run-2", worker_id="worker-b", limit=1, lease_seconds=300, connection=connection)] == [1]
+
+
+def test_claim_jobs_claims_only_explicit_job_ids() -> None:
+    connection = _connection()
+    apply_migrations(connection)
+    for job_id in (1, 2, 3):
+        connection.execute(
+            "INSERT INTO job_postings (job_id,company_id,title) VALUES (?,1,?)",
+            (job_id, f"Role {job_id}"),
+        )
+        enqueue_job(job_id, description_ready=True, connection=connection)
+
+    claimed = job_evaluation_queue.claim_jobs(
+        job_ids=[2, 2], worker_id="daily", lease_seconds=300, connection=connection
+    )
+
+    assert [item.job_id for item in claimed] == [2]
+    states = dict(connection.execute("SELECT job_id,status FROM job_evaluation_queue"))
+    assert states == {1: "queued", 2: "claimed", 3: "queued"}
 
 
 def test_completion_is_idempotent_and_retry_is_bounded() -> None:

@@ -44,6 +44,61 @@ def test_worker_claims_only_jobs_that_fit_budget(tmp_path) -> None:
     assert connection.execute("SELECT count(*) FROM job_evaluation_queue WHERE status='queued'").fetchone()[0] == 1
 
 
+def test_worker_claims_only_selected_jobs_from_current_discovery_run(tmp_path) -> None:
+    connection = get_connection(tmp_path / "jobs.db")
+    connection.executescript(Path("src/database/schema.sql").read_text())
+    apply_migrations(connection)
+    connection.execute(
+        "INSERT INTO companies (company_id,company_name,website) VALUES (1,'Acme','https://acme.test')"
+    )
+    for job_id, discovery_run_id in ((1, "daily-1"), (2, "daily-1"), (3, "old-run")):
+        connection.execute(
+            """INSERT INTO job_postings
+               (job_id,company_id,title,description,active,description_status,
+                description_checked_at,discovery_run_id)
+               VALUES (?,1,?,'verified',1,'enriched',CURRENT_TIMESTAMP,?)""",
+            (job_id, f"Role {job_id}", discovery_run_id),
+        )
+        enqueue_job(job_id, description_ready=True, connection=connection)
+    policy = EvaluationPolicy(
+        default_model="gpt-5.6-luna",
+        batch_size=5,
+        max_jobs_per_run=5,
+        estimated_token_limit=30_000,
+    )
+    start_run("daily-eval-1", policy=policy, trigger="scheduled_daily", connection=connection)
+
+    packet = claim_evaluation_packet(
+        "daily-eval-1",
+        "codex-scheduled",
+        policy=policy,
+        job_ids=[2, 3],
+        discovery_run_id="daily-1",
+        connection=connection,
+    )
+
+    assert packet is not None
+    assert [job.job_id for job in packet.jobs] == [2]
+    states = dict(connection.execute("SELECT job_id,status FROM job_evaluation_queue"))
+    assert states == {1: "queued", 2: "claimed", 3: "queued"}
+
+
+def test_filtered_worker_requires_ids_and_discovery_run_together(tmp_path) -> None:
+    connection = get_connection(tmp_path / "jobs.db")
+    connection.executescript(Path("src/database/schema.sql").read_text())
+    apply_migrations(connection)
+    policy = EvaluationPolicy()
+    start_run("daily-eval-1", policy=policy, connection=connection)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="job_ids and discovery_run_id"):
+        claim_evaluation_packet(
+            "daily-eval-1", "codex-scheduled", policy=policy,
+            job_ids=[1], connection=connection,
+        )
+
+
 def test_submission_atomically_completes_claimed_job(tmp_path) -> None:
     db_path = tmp_path / "jobs.db"
     connection = get_connection(db_path)

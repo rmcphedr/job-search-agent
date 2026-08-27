@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from src.database.db import get_connection
 from src.database.migrate import apply_migrations
 from src.orchestration.evaluation_policy import EvaluationPolicy, estimate_tokens, load_evaluation_policy
-from src.orchestration.job_evaluation_queue import claim_batch
+from src.orchestration.job_evaluation_queue import claim_batch, claim_jobs
 
 
 @dataclass(frozen=True)
@@ -55,8 +55,12 @@ def start_run(run_id: str, *, policy: EvaluationPolicy | None = None, trigger: s
 
 
 def claim_evaluation_packet(run_id: str, worker_id: str, *, policy: EvaluationPolicy | None = None,
-                            profile_text: str = "", connection=None) -> EvaluationPacket | None:
+                            profile_text: str = "", job_ids: list[int] | None = None,
+                            discovery_run_id: str | None = None, connection=None) -> EvaluationPacket | None:
     policy = policy or load_evaluation_policy()
+    filtered_claim = job_ids is not None or discovery_run_id is not None
+    if filtered_claim and (not job_ids or not discovery_run_id):
+        raise ValueError("job_ids and discovery_run_id are both required for filtered claims")
     owned = connection is None
     conn = connection or get_connection()
     conn.row_factory = sqlite3.Row
@@ -67,14 +71,32 @@ def claim_evaluation_packet(run_id: str, worker_id: str, *, policy: EvaluationPo
         used = int(run["input_tokens"] or 0) + int(run["output_tokens"] or 0)
         remaining_tokens = int(run["estimated_token_limit"]) - used
         profile_tokens = estimate_tokens(profile_text).tokens
+        clauses = [
+            "q.status='queued'",
+            "j.active=1",
+            "j.evaluated_at IS NULL",
+            "j.description_status='enriched'",
+            "j.description_checked_at IS NOT NULL",
+        ]
+        params: list[object] = []
+        if filtered_claim:
+            ordered_job_ids = list(dict.fromkeys(job_ids or []))
+            placeholders = ",".join("?" for _ in ordered_job_ids)
+            clauses.extend([f"j.job_id IN ({placeholders})", "j.discovery_run_id=?"])
+            params.extend(ordered_job_ids)
+            params.append(discovery_run_id)
+        params.append(remaining_jobs)
         candidates = conn.execute(
-            """SELECT q.queue_id,j.job_id,j.title,c.company_name,j.location,j.description,j.description_checked_at
-               FROM job_evaluation_queue q JOIN job_postings j USING(job_id)
-               JOIN companies c USING(company_id)
-               WHERE q.status='queued' AND j.active=1 AND j.description_status='enriched'
-               ORDER BY q.priority,q.eligible_at,q.queue_id LIMIT ?""",
-            (remaining_jobs,),
+            f"""SELECT q.queue_id,j.job_id,j.title,c.company_name,j.location,j.description,j.description_checked_at
+                FROM job_evaluation_queue q JOIN job_postings j USING(job_id)
+                JOIN companies c USING(company_id)
+                WHERE {' AND '.join(clauses)}
+                ORDER BY q.priority,q.eligible_at,q.queue_id LIMIT ?""",
+            params,
         ).fetchall()
+        if filtered_claim:
+            requested_order = {job_id: index for index, job_id in enumerate(ordered_job_ids)}
+            candidates = sorted(candidates, key=lambda row: requested_order[int(row["job_id"])])
         selected = []
         projected = profile_tokens
         for row in candidates:
@@ -88,7 +110,15 @@ def claim_evaluation_packet(run_id: str, worker_id: str, *, policy: EvaluationPo
             if owned:
                 conn.commit()
             return None
-        claimed = claim_batch(run_id=run_id, worker_id=worker_id, limit=len(selected), lease_seconds=policy.lease_seconds, connection=conn)
+        if filtered_claim:
+            claimed = claim_jobs(
+                job_ids=[int(row["job_id"]) for row, _ in selected],
+                worker_id=worker_id,
+                lease_seconds=policy.lease_seconds,
+                connection=conn,
+            )
+        else:
+            claimed = claim_batch(run_id=run_id, worker_id=worker_id, limit=len(selected), lease_seconds=policy.lease_seconds, connection=conn)
         by_id = {item.job_id: item for item in claimed}
         jobs = [EvaluationJob(queue_id=by_id[int(row["job_id"])].queue_id, job_id=int(row["job_id"]),
                               title=row["title"], company_name=row["company_name"], location=row["location"],

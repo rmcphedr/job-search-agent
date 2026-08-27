@@ -118,6 +118,42 @@ def claim_batch(*, run_id: str, worker_id: str, limit: int, lease_seconds: int, 
             conn.close()
 
 
+def claim_jobs(*, job_ids: list[int], worker_id: str, lease_seconds: int, connection=None) -> list[QueueItem]:
+    """Claim only the explicitly requested queued jobs, preserving caller order."""
+    ordered_ids = list(dict.fromkeys(job_ids))
+    if not ordered_ids:
+        return []
+    conn, owned = _with_connection(connection)
+    try:
+        if owned:
+            conn.execute("BEGIN IMMEDIATE")
+        placeholders = ",".join("?" for _ in ordered_ids)
+        conn.execute(
+            f"""UPDATE job_evaluation_queue SET status='claimed', lease_owner=?,
+                lease_expires_at=datetime('now', ?), claimed_at=CURRENT_TIMESTAMP,
+                attempt_count=attempt_count+1, updated_at=CURRENT_TIMESTAMP
+                WHERE job_id IN ({placeholders}) AND status='queued'
+                  AND attempt_count < max_attempts""",
+            (worker_id, f"+{lease_seconds} seconds", *ordered_ids),
+        )
+        rows = conn.execute(
+            f"SELECT * FROM job_evaluation_queue WHERE job_id IN ({placeholders}) AND status='claimed' AND lease_owner=?",
+            (*ordered_ids, worker_id),
+        ).fetchall()
+        by_job_id = {int(row["job_id"]): _item(row) for row in rows}
+        result = [by_job_id[job_id] for job_id in ordered_ids if job_id in by_job_id]
+        if owned:
+            conn.commit()
+        return result
+    except Exception:
+        if owned:
+            conn.rollback()
+        raise
+    finally:
+        if owned:
+            conn.close()
+
+
 def release_stale_claims(*, connection=None) -> int:
     conn, owned = _with_connection(connection)
     try:
