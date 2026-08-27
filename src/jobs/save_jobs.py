@@ -239,6 +239,7 @@ def save_jobs(
                                 description_source_url = ?,
                                 description_checked_at = CURRENT_TIMESTAMP,
                                 description_error = NULL,
+                                discovery_run_id = coalesce(?, discovery_run_id),
                                 fit_score = NULL,
                                 fit_reason = NULL,
                                 fit_details = NULL,
@@ -246,7 +247,7 @@ def save_jobs(
                                 active = 1
                             WHERE job_id = ?;
                             """,
-                            (candidate.description, candidate.url, existing_job_id),
+                            (candidate.description, candidate.url, discovery_run_id, existing_job_id),
                         )
                         sync_job_eligibility(
                             existing_job_id,
