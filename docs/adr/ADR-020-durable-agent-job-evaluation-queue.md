@@ -73,6 +73,19 @@ enrollment never starts model execution by itself.
   data exists.
 - Revisit the default batch size and confidence threshold after initial runs.
 
+## Daily scheduled evaluation extension
+
+The existing local Codex daily opportunity scan may consume a bounded subset
+of queue items created by that same scan. It evaluates three qualifying jobs by
+default and no more than five, selects by the current `discovery_run_id`, and
+must never claim the historical backlog implicitly. Routine scheduled scoring
+uses `gpt-5.6-luna` with low reasoning and a 30,000 estimated-token ceiling.
+The scheduled task uses ChatGPT/Codex sign-in rather than an OpenAI API key.
+
+This extension preserves the queue boundary: the agent produces typed results
+and Python validates and writes canonical state. Details are specified in
+[Daily Codex Job Evaluation Design](../superpowers/specs/2026-08-27-daily-codex-job-evaluation-design.md).
+
 ## Implementation notes
 
 - Queue and telemetry: new SQLite migrations and repository modules under
