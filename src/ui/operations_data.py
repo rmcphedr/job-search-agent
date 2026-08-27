@@ -98,9 +98,15 @@ def load_recent_evaluation_runs(*, connection=None) -> pd.DataFrame:
 
 def load_model_efficiency(*, connection=None) -> pd.DataFrame:
     owned = connection is None; conn = connection or get_connection()
-    try: return pd.read_sql_query("""SELECT model,reasoning_effort,count(*) attempts,
-        sum(CASE WHEN status='completed' THEN 1 ELSE 0 END) completed,
-        avg(duration_ms) avg_duration_ms,sum(input_tokens) input_tokens,sum(output_tokens) output_tokens
-        FROM job_evaluation_attempts GROUP BY model,reasoning_effort""", conn)
+    try:
+        frame = pd.read_sql_query("""SELECT model,reasoning_effort,count(*) attempts,
+            sum(CASE WHEN status='completed' THEN 1 ELSE 0 END) completed,
+            avg(duration_ms) avg_duration_ms,sum(input_tokens) input_tokens,sum(output_tokens) output_tokens,
+            CASE WHEN min(usage_provenance)=max(usage_provenance)
+                 THEN min(usage_provenance) ELSE 'mixed' END usage_provenance
+            FROM job_evaluation_attempts GROUP BY model,reasoning_effort""", conn)
+        for column in ("avg_duration_ms", "input_tokens", "output_tokens"):
+            frame[column] = frame[column].astype(object).where(frame[column].notna(), "Unavailable")
+        return frame
     finally:
         if owned: conn.close()
