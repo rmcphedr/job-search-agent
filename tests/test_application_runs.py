@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import src.database.application_runs as application_runs
+
 from src.database.application_runs import (
     cancel_application,
     claim_next_application,
@@ -115,3 +117,42 @@ def test_enqueue_rolls_back_tracking_when_preparation_fails(db: Path) -> None:
     with _connect(db) as connection:
         assert connection.execute("SELECT COUNT(*) FROM application_runs").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM tracked_jobs").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("operation", ["transition", "mode_change"])
+def test_cancel_between_read_and_write_cannot_be_overwritten(
+    db: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    with _connect(db) as setup:
+        run_id = enqueue_application(10, "draft_for_review", connection=setup)["run_id"]
+    worker = _connect(db)
+    canceller = _connect(db)
+    original_row = application_runs._row
+    cancelled = False
+
+    def interleave_cancel(connection: sqlite3.Connection, selected_run_id: int) -> dict:
+        nonlocal cancelled
+        row = original_row(connection, selected_run_id)
+        if connection is worker and not cancelled:
+            cancelled = True
+            transition_application(run_id, "cancelled", connection=canceller)
+            canceller.commit()
+        return row
+
+    monkeypatch.setattr(application_runs, "_row", interleave_cancel)
+    if operation == "mode_change":
+        monkeypatch.setattr(application_runs, "get_connection", lambda: worker)
+    try:
+        with pytest.raises(ValueError, match="changed|Terminal"):
+            if operation == "transition":
+                transition_application(run_id, "filling", connection=worker)
+            else:
+                set_application_mode(run_id, "fully_automate")
+    finally:
+        worker.close()
+        canceller.close()
+    with _connect(db) as connection:
+        persisted = connection.execute(
+            "SELECT status, mode FROM application_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        assert (persisted["status"], persisted["mode"]) == ("cancelled", "draft_for_review")

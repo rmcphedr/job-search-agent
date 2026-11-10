@@ -141,15 +141,17 @@ def transition_application(run_id: int, status: str, *, pause_reason: str | None
         if current["status"] in TERMINAL:
             raise ValueError("Terminal application run cannot transition")
         now = _now()
-        db.execute(
+        cursor = db.execute(
             """UPDATE application_runs SET status=?, pause_reason=?, checkpoint_json=?,
                submission_attempted_at=CASE WHEN ?='submitting' THEN COALESCE(submission_attempted_at, ?) ELSE submission_attempted_at END,
                lease_owner=CASE WHEN ? IN ('needs_user','ready_for_review','submission_uncertain','submitted','failed','cancelled') THEN NULL ELSE lease_owner END,
                lease_expires_at=CASE WHEN ? IN ('needs_user','ready_for_review','submission_uncertain','submitted','failed','cancelled') THEN NULL ELSE lease_expires_at END,
-               updated_at=? WHERE run_id=?""",
+               updated_at=? WHERE run_id=? AND status=?""",
             (status, pause_reason, json.dumps(checkpoint if checkpoint is not None else current["checkpoint"]),
-             status, now, status, status, now, run_id),
+             status, now, status, status, now, run_id, current["status"]),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("Application run changed during transition")
         result = _row(db, run_id)
         if owned:
             db.commit()
@@ -167,7 +169,12 @@ def set_application_mode(run_id: int, mode: str) -> dict[str, Any]:
         current = _row(db, run_id)
         if current["status"] in TERMINAL:
             raise ValueError("Terminal application run cannot change mode")
-        db.execute("UPDATE application_runs SET mode=?, updated_at=? WHERE run_id=?", (mode, _now(), run_id))
+        cursor = db.execute(
+            "UPDATE application_runs SET mode=?, updated_at=? WHERE run_id=? AND status=?",
+            (mode, _now(), run_id, current["status"]),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Application run changed during mode change")
         db.commit()
         return _row(db, run_id)
     finally:
