@@ -314,3 +314,28 @@ CREATE INDEX IF NOT EXISTS idx_job_evaluation_attempts_run
     ON job_evaluation_attempts(run_id, attempt_id);
 CREATE INDEX IF NOT EXISTS idx_job_evaluation_attempts_job
     ON job_evaluation_attempts(job_id, attempt_id);
+
+CREATE TABLE IF NOT EXISTS application_runs (
+    run_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('fully_automate','draft_for_review')),
+    status TEXT NOT NULL CHECK (status IN ('queued','inspecting','preparing','filling','needs_user','ready_for_review','submitting','submitted','submission_uncertain','failed','cancelled')),
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    pause_reason TEXT,
+    checkpoint_json TEXT NOT NULL DEFAULT '{}',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    submission_attempted_at TEXT,
+    claimed_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_application_runs_active_job
+    ON application_runs (job_id)
+    WHERE status NOT IN ('submitted','failed','cancelled');
+CREATE INDEX IF NOT EXISTS idx_application_runs_claim
+    ON application_runs (status, lease_expires_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_application_runs_job
+    ON application_runs (job_id, run_id DESC);

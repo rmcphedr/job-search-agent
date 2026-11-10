@@ -17,7 +17,7 @@ JOB_POSTINGS_COLUMNS: dict[str, str] = {
     "description_error": "TEXT",
 }
 
-MIGRATION_VERSION = 12
+MIGRATION_VERSION = 13
 
 APPLICATION_STAGE_HISTORY_DDL = """
 CREATE TABLE IF NOT EXISTS application_stage_history (
@@ -263,6 +263,34 @@ CREATE INDEX IF NOT EXISTS idx_application_submissions_job
 """
 
 
+APPLICATION_RUNS_DDL = """
+CREATE TABLE IF NOT EXISTS application_runs (
+    run_id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    mode TEXT NOT NULL CHECK (mode IN ('fully_automate','draft_for_review')),
+    status TEXT NOT NULL CHECK (status IN ('queued','inspecting','preparing','filling','needs_user','ready_for_review','submitting','submitted','submission_uncertain','failed','cancelled')),
+    lease_owner TEXT,
+    lease_expires_at TEXT,
+    pause_reason TEXT,
+    checkpoint_json TEXT NOT NULL DEFAULT '{}',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    submission_attempted_at TEXT,
+    claimed_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES job_postings (job_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_application_runs_active_job
+    ON application_runs (job_id)
+    WHERE status NOT IN ('submitted','failed','cancelled');
+CREATE INDEX IF NOT EXISTS idx_application_runs_claim
+    ON application_runs (status, lease_expires_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_application_runs_job
+    ON application_runs (job_id, run_id DESC);
+"""
+
+
 def _column_exists(connection: sqlite3.Connection, table: str, column: str) -> bool:
     rows = connection.execute(f"PRAGMA table_info({table});").fetchall()
     return any(row["name"] == column for row in rows)
@@ -485,6 +513,11 @@ def apply_migrations(connection: sqlite3.Connection) -> list[str]:
             )
         connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (12,))
         changes.extend(("application_stage_history", "schema_migrations.version=12"))
+
+    if version < 13:
+        connection.executescript(APPLICATION_RUNS_DDL)
+        connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (13,))
+        changes.extend(("application_runs", "schema_migrations.version=13"))
 
     return changes
 
