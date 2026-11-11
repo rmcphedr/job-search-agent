@@ -67,7 +67,7 @@ def observe_page(page: Any) -> PageObservation:
       return {
         ambiguous: forms.length > 1,
         fields: [...root.querySelectorAll('input,textarea,select,[role=combobox]')].filter(el=>visible(el) || el.type==='file').filter(el=>!['hidden','submit','button','reset'].includes(el.type)).map(el=>({
-          label:label(el), type:el.type || el.tagName.toLowerCase(), required:el.required || el.getAttribute('aria-required')==='true',
+          label:label(el), type:el.getAttribute('role') === 'combobox' && el.tagName !== 'SELECT' ? 'combobox' : (el.type || el.tagName.toLowerCase()), required:el.required || el.getAttribute('aria-required')==='true',
           options:el.options ? [...el.options].filter(x=>x.value).map(x=>x.textContent.trim()) : []})),
         actions:[...root.querySelectorAll('button,input[type=submit],input[type=button],[role=button],a')].filter(visible).filter(el=>!el.disabled).map(el=>({name:el.getAttribute('aria-label') || el.textContent.trim() || el.value || '',role:el.tagName==='A'?'link':'button'})),
         errors:[...document.querySelectorAll('[role=alert],.field-validation-error,.validation-summary-errors,[aria-invalid=true]')].filter(visible).map(el=>el.validationMessage || el.textContent.trim() || 'Invalid field'),
@@ -98,7 +98,7 @@ def observe_page(page: Any) -> PageObservation:
         seen.add(key)
         fields.append(ApplicationField(section, key, label, "select" if kind == "select-one" else kind,
                                        item["required"], tuple(item["options"]), len(fields)+1))
-        if kind == "checkbox" and any(word in label.casefold() for word in ("agree", "consent", "privacy", "certify")):
+        if kind == "checkbox" and any(word in label.casefold() for word in ("agree", "consent", "privacy", "certify", "accept", "terms", "conditions")):
             # Consent is direct user action, even when a value was supplied.
             if not page.get_by_label(label, exact=True).is_checked():
                 gates.append("consent")

@@ -84,3 +84,23 @@ def test_profile_single_owner(tmp_path):
         with pytest.raises(BrowserPause):
             with open_application_browser(2, profile_dir=tmp_path, headless=True):
                 pass
+
+
+def test_terms_acceptance_requires_direct_user_handoff(page):
+    page.set_content('<form><label>I accept the Terms and Conditions<input type="checkbox"></label><button>Next</button></form>')
+    observation = observe_page(page)
+    assert "consent" in observation.gates
+    outcome = fill_observed_page(page, observation, {"i_accept_the_terms_and_conditions": "true"})
+    assert not outcome.filled
+    assert not page.get_by_label("I accept the Terms and Conditions", exact=True).is_checked()
+    with pytest.raises(BrowserPause):
+        advance_nonfinal(page, observation)
+
+
+def test_custom_combobox_blocks_next_even_without_value(page):
+    page.set_content('<form><div role="combobox" aria-label="Country" tabindex="0"></div><button>Next</button></form>')
+    observation = observe_page(page)
+    assert "unsupported_control" in observation.gates
+    assert not fill_observed_page(page, observation, {}).filled
+    with pytest.raises(BrowserPause):
+        advance_nonfinal(page, observation)
