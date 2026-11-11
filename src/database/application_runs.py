@@ -93,7 +93,7 @@ def enqueue_application(job_id: int, mode: str, *, connection: sqlite3.Connectio
             db.close()
 
 
-def claim_next_application(worker_id: str, lease_seconds: int = 900, *, connection: sqlite3.Connection | None = None) -> dict[str, Any] | None:
+def claim_next_application(worker_id: str, lease_seconds: int = 900, *, run_id: int | None = None, connection: sqlite3.Connection | None = None) -> dict[str, Any] | None:
     if not worker_id.strip() or lease_seconds <= 0:
         raise ValueError("Worker ID and positive lease are required")
     db, owned = _connection(connection)
@@ -105,8 +105,9 @@ def claim_next_application(worker_id: str, lease_seconds: int = 900, *, connecti
             """SELECT run_id, status FROM application_runs
                WHERE status IN ('queued','inspecting','preparing','filling')
                  AND (lease_expires_at IS NULL OR lease_expires_at <= ?)
+                 AND (? IS NULL OR run_id=?)
                ORDER BY created_at, run_id LIMIT 1""",
-            (now,),
+            (now, run_id, run_id),
         ).fetchone()
         if row is None:
             if owned:
@@ -132,7 +133,7 @@ def claim_next_application(worker_id: str, lease_seconds: int = 900, *, connecti
             db.close()
 
 
-def transition_application(run_id: int, status: str, *, pause_reason: str | None = None, checkpoint: dict | None = None, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
+def transition_application(run_id: int, status: str, *, pause_reason: str | None = None, checkpoint: dict | None = None, expected_owner: str | None = None, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
     if status not in STATUSES:
         raise ValueError(f"Invalid application status: {status}")
     db, owned = _connection(connection)
@@ -146,9 +147,10 @@ def transition_application(run_id: int, status: str, *, pause_reason: str | None
                submission_attempted_at=CASE WHEN ?='submitting' THEN COALESCE(submission_attempted_at, ?) ELSE submission_attempted_at END,
                lease_owner=CASE WHEN ? IN ('needs_user','ready_for_review','submission_uncertain','submitted','failed','cancelled') THEN NULL ELSE lease_owner END,
                lease_expires_at=CASE WHEN ? IN ('needs_user','ready_for_review','submission_uncertain','submitted','failed','cancelled') THEN NULL ELSE lease_expires_at END,
-               updated_at=? WHERE run_id=? AND status=?""",
+               updated_at=? WHERE run_id=? AND status=?
+               AND (? IS NULL OR (lease_owner=? AND lease_expires_at>?))""",
             (status, pause_reason, json.dumps(checkpoint if checkpoint is not None else current["checkpoint"]),
-             status, now, status, status, now, run_id, current["status"]),
+             status, now, status, status, now, run_id, current["status"], expected_owner, expected_owner, now),
         )
         if cursor.rowcount != 1:
             raise ValueError("Application run changed during transition")
@@ -290,3 +292,36 @@ def get_review_packet(run_id: int) -> dict[str, Any]:
             'validation': run['checkpoint'].get('validation', []),
             'remaining': [f['field_key'] for f in fields if f['required'] and f['disposition'] != 'provided'],
             'steps': list_application_steps(run['job_id'])}
+
+
+def renew_application_lease(run_id: int, worker_id: str, lease_seconds: int = 900) -> bool:
+    """Renew only live ownership; an expired lease may already belong elsewhere."""
+    if lease_seconds <= 0:
+        raise ValueError('Positive lease duration required')
+    db = get_connection()
+    try:
+        now = _now()
+        expires = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+        cursor = db.execute(
+            """UPDATE application_runs SET lease_expires_at=? WHERE run_id=? AND lease_owner=?
+               AND lease_expires_at>? AND status IN ('inspecting','preparing','filling')""",
+            (expires, run_id, worker_id, now),
+        )
+        db.commit()
+        return cursor.rowcount == 1
+    finally:
+        db.close()
+
+
+def release_application_claim(run_id: int, worker_id: str) -> None:
+    """Return pre-submit work to the queue without touching another owner's claim."""
+    db = get_connection()
+    try:
+        db.execute(
+            """UPDATE application_runs SET status='queued', lease_owner=NULL, lease_expires_at=NULL,
+               updated_at=? WHERE run_id=? AND lease_owner=?
+               AND status IN ('inspecting','preparing','filling')""", (_now(), run_id, worker_id),
+        )
+        db.commit()
+    finally:
+        db.close()

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import time
-from contextlib import nullcontext
+import threading
+import uuid
+from contextlib import nullcontext, contextmanager
 from dataclasses import asdict
 from pathlib import Path
 
@@ -15,7 +17,8 @@ from src.applications.browser_session import (
 from src.applications.dayforce import ApplicationInspection
 from src.database.application_automation import list_application_facts, record_application_event, set_field_observation
 from src.database.application_preparation import update_application_step
-from src.database.application_runs import claim_next_application, read_application_run, transition_application
+from src.database.application_runs import (claim_next_application, read_application_run, transition_application,
+                                           renew_application_lease, release_application_claim)
 from src.database.application_workspace import get_application_workspace, save_inspection, update_application_field
 from src.database.db import get_connection, get_project_root
 from src.integrations.resume_pipeline import run_resume_generation, run_cover_letter_generation
@@ -44,13 +47,46 @@ def final_page_ready(run_id, browser, observation):
     return transition_application(run_id, 'ready_for_review')
 
 
+@contextmanager
+def _maintain_lease(run_id, worker_id):
+    """Renew during slow external calls; every action also checks ownership."""
+    stop = threading.Event()
+    def heartbeat():
+        while not stop.wait(30):
+            try:
+                renew_application_lease(run_id, worker_id)
+            except Exception:
+                # The next durable transition must still prove a live lease.
+                return
+    thread = threading.Thread(target=heartbeat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+
+
 def process_application_run(run_id: int, *, browser_factory, answer_agent, resume_bridge) -> dict:
+    owner = 'application-' + uuid.uuid4().hex
+    claimed = claim_next_application(owner, run_id=run_id)
+    if claimed is None:
+        return read_application_run(run_id)
+    with _maintain_lease(run_id, owner):
+        try:
+            return _process_application_run(run_id, worker_id=owner, browser_factory=browser_factory,
+                                            answer_agent=answer_agent, resume_bridge=resume_bridge)
+        finally:
+            release_application_claim(run_id, owner)
+
+
+def _process_application_run(run_id: int, *, worker_id, browser_factory, answer_agent, resume_bridge) -> dict:
     run = read_application_run(run_id)
     if run['status'] not in {'queued', 'inspecting', 'preparing', 'filling'}:
         return run
     checkpoint = dict(run['checkpoint'])
     def transition(status, reason=None):
-        return transition_application(run_id, status, pause_reason=reason, checkpoint=checkpoint)
+        return transition_application(run_id, status, pause_reason=reason, checkpoint=checkpoint, expected_owner=worker_id)
     db = get_connection()
     try:
         job = dict(db.execute('SELECT j.*, c.company_name FROM job_postings j JOIN companies c USING(company_id) WHERE job_id=?', (run['job_id'],)).fetchone())
@@ -72,7 +108,7 @@ def process_application_run(run_id: int, *, browser_factory, answer_agent, resum
                 pages = checkpoint.setdefault('pages', [])
                 if observation.page_identity not in pages:
                     pages.append(observation.page_identity)
-                checkpoint['validation'] = list(observation.validation)
+                checkpoint['validation'] = ['provider_validation_error'] if observation.validation else []
                 transition('inspecting')
                 save_inspection(job['job_id'], ApplicationInspection(
                     'generic_web_form', observation.url, observation.page_identity, observation.fields,
@@ -143,7 +179,7 @@ def process_application_run(run_id: int, *, browser_factory, answer_agent, resum
                 for key in outcome.filled:
                     set_field_observation(job['job_id'], key, disposition='provided')
                     record_application_event('field_filled', job_id=job['job_id'], target_key=key)
-                checkpoint['validation'] = list(outcome.validation)
+                checkpoint['validation'] = ['provider_validation_error'] if outcome.validation else []
                 if outcome.unresolved or outcome.validation:
                     return transition('needs_user', 'Resolve field or provider validation errors')
                 if observation.final_action:
@@ -156,7 +192,9 @@ def process_application_run(run_id: int, *, browser_factory, answer_agent, resum
             return transition('needs_user', 'Page limit reached')
     except (BrowserPause, OSError, RuntimeError, ValueError) as exc:
         current = read_application_run(run_id)
-        if current['status'] in {'cancelled', 'submitted', 'failed'}:
+        if current['status'] in {'cancelled', 'submitted', 'failed'} or current['lease_owner'] != worker_id:
+            return current
+        if not renew_application_lease(run_id, worker_id):
             return current
         # Exception text can contain candidate values; retain only the type.
         return transition('needs_user', f'Worker action requires review ({type(exc).__name__})')
@@ -165,19 +203,29 @@ def process_application_run(run_id: int, *, browser_factory, answer_agent, resum
 def run_worker(*, watch=False, browser_factory=open_application_browser,
                answer_agent=draft_answer, resume_bridge=DocumentBridge(), poll_seconds=2):
     """Keep the context (and its process lock) alive while a user handles a gate."""
+    owner = 'local-application-' + uuid.uuid4().hex
     while True:
-        run = claim_next_application('local-application-worker')
+        run = claim_next_application(owner)
         if run:
-            with browser_factory(run['run_id']) as browser:
-                while True:
-                    result = process_application_run(run['run_id'], browser_factory=lambda _: nullcontext(browser),
-                                                     answer_agent=answer_agent, resume_bridge=resume_bridge)
-                    if not watch or result['status'] != 'needs_user':
-                        break
-                    while read_application_run(run['run_id'])['status'] == 'needs_user':
-                        time.sleep(poll_seconds)
-                    if read_application_run(run['run_id'])['status'] != 'queued':
-                        break
+            run_id = run['run_id']
+            try:
+                with _maintain_lease(run_id, owner), browser_factory(run_id) as browser:
+                    while True:
+                        result = _process_application_run(run_id, worker_id=owner,
+                            browser_factory=lambda _: nullcontext(browser),
+                            answer_agent=answer_agent, resume_bridge=resume_bridge)
+                        if not watch or result['status'] != 'needs_user':
+                            break
+                        while read_application_run(run_id)['status'] == 'needs_user':
+                            time.sleep(poll_seconds)
+                        # Pausing released the lease. Resume must win a new atomic claim.
+                        if claim_next_application(owner, run_id=run_id) is None:
+                            break
+            except BrowserPause:
+                # A retained handoff browser can own the global lock. Retry later.
+                pass
+            finally:
+                release_application_claim(run_id, owner)
         if not watch:
             return
         time.sleep(poll_seconds)

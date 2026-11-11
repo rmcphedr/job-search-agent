@@ -130,3 +130,125 @@ def test_later_cover_letter_does_not_regenerate_resume(env, monkeypatch):
     assert w.process_application_run(run, **deps)['status'] == 'ready_for_review'
     assert state.generations == [False]
     assert calls == [1]
+
+@pytest.mark.parametrize('source', ['observation', 'outcome'])
+def test_provider_validation_does_not_persist_candidate_value(env, monkeypatch, source):
+    from dataclasses import replace
+    secret = 'candidate.private@example.test'
+    obs = observation()
+    if source == 'observation':
+        obs = replace(obs, validation=(f'Email {secret} is invalid',), gates=('account',))
+    w, state, run, deps = setup_worker(env, monkeypatch, [obs])
+    if source == 'outcome':
+        monkeypatch.setattr(w, 'fill_observed_page', lambda *args: w.FillOutcome(validation=(f'Email {secret} is invalid',)))
+    result = w.process_application_run(run, **deps)
+    assert result['status'] == 'needs_user'
+    assert result['checkpoint']['validation'] == ['provider_validation_error']
+    with env[1]() as db:
+        assert secret not in str([tuple(row) for row in db.execute('SELECT checkpoint_json FROM application_runs')])
+        assert secret not in str([tuple(row) for row in db.execute('SELECT details_json FROM application_audit_events')])
+
+
+def test_changed_question_invalidates_reviewed_answer(env, monkeypatch):
+    from src.applications.dayforce import ApplicationField
+    from src.database.application_workspace import update_application_field
+    first = ApplicationField('questions', 'experience', 'Experience', 'select', True, ('One year', 'Two years'))
+    second = ApplicationField('questions', 'experience', 'Experience', 'select', True, ('Two years', 'Three years'))
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation([first]), observation([second])])
+    assert w.process_application_run(run, **deps)['status'] == 'needs_user'
+    update_application_field(1, 'experience', 'Two years')
+    runs.resume_application(run)
+    state.index = 1
+    assert w.process_application_run(run, **deps)['status'] == 'needs_user'
+    assert not state.fills
+    assert runs.get_review_packet(run)['fields'][0]['status'] != 'reviewed'
+
+
+def test_watch_resume_reclaims_lease(env, monkeypatch):
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation(gates=('account',)), observation()])
+    def wake(seconds):
+        if runs.read_application_run(run)['status'] == 'needs_user':
+            state.index = 1
+            runs.resume_application(run)
+        else:
+            raise KeyboardInterrupt
+    def fill(page, obs, values):
+        current = runs.read_application_run(run)
+        assert current['lease_owner']
+        assert current['lease_expires_at']
+        return w.FillOutcome()
+    monkeypatch.setattr(w, 'fill_observed_page', fill)
+    monkeypatch.setattr(w.time, 'sleep', wake)
+    with pytest.raises(KeyboardInterrupt):
+        w.run_worker(watch=True, **deps)
+    assert runs.read_application_run(run)['status'] == 'ready_for_review'
+
+
+def test_browser_lock_contention_releases_claim(env, monkeypatch):
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation()])
+    @contextmanager
+    def busy(run_id):
+        raise w.BrowserPause('Another application run owns the browser')
+        yield
+    deps['browser_factory'] = busy
+    w.run_worker(watch=False, **deps)
+    current = runs.read_application_run(run)
+    assert current['status'] == 'queued'
+    assert current['lease_owner'] is None
+    assert current['lease_expires_at'] is None
+
+
+def test_watch_does_not_resume_when_competitor_claims(env, monkeypatch):
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation(gates=('account',)), observation()])
+    def wake(seconds):
+        if runs.read_application_run(run)['status'] == 'needs_user':
+            runs.resume_application(run)
+            assert runs.claim_next_application('competing-worker', run_id=run)
+            state.index = 1
+        else:
+            raise KeyboardInterrupt
+    monkeypatch.setattr(w.time, 'sleep', wake)
+    with pytest.raises(KeyboardInterrupt):
+        w.run_worker(watch=True, **deps)
+    assert not state.fills
+    assert state.closed
+    assert runs.read_application_run(run)['lease_owner'] == 'competing-worker'
+
+
+def test_lease_renewal_and_stale_owner_cannot_mutate(env, monkeypatch):
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation()])
+    claimed = runs.claim_next_application('first-worker', run_id=run, lease_seconds=1)
+    assert runs.renew_application_lease(run, 'first-worker', lease_seconds=900)
+    assert runs.read_application_run(run)['lease_expires_at'] > claimed['lease_expires_at']
+    with env[1]() as db:
+        db.execute("UPDATE application_runs SET lease_expires_at='2000-01-01T00:00:00+00:00'")
+    assert not runs.renew_application_lease(run, 'first-worker')
+    assert runs.claim_next_application('second-worker', run_id=run)
+    with pytest.raises(ValueError, match='changed'):
+        runs.transition_application(run, 'filling', expected_owner='first-worker')
+    runs.release_application_claim(run, 'first-worker')
+    assert runs.read_application_run(run)['lease_owner'] == 'second-worker'
+
+
+def test_heartbeat_renews_while_external_work_is_running(env, monkeypatch):
+    import threading
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation()])
+    owner = 'heartbeat-worker'
+    claimed = runs.claim_next_application(owner, run_id=run, lease_seconds=1)
+    real_event = threading.Event
+    renewed = real_event()
+    class FastFirstWait:
+        def __init__(self):
+            self.event = real_event()
+            self.first = True
+        def wait(self, seconds):
+            if self.first:
+                self.first = False
+                return False
+            renewed.set()
+            return self.event.wait(seconds)
+        def set(self): self.event.set()
+    monkeypatch.setattr(w, 'threading', SimpleNamespace(Event=FastFirstWait, Thread=threading.Thread))
+    with w._maintain_lease(run, owner):
+        assert renewed.wait(2)
+        assert runs.read_application_run(run)['lease_expires_at'] > claimed['lease_expires_at']

@@ -56,6 +56,17 @@ def save_inspection(job_id: int, inspection: ApplicationInspection, *, preserve_
             ),
         )
         for item in inspection.fields:
+            # Approval belongs to the complete inspected question, not its slug.
+            previous = connection.execute(
+                "SELECT section, label, field_type, required, options_json FROM application_fields WHERE job_id=? AND field_key=?",
+                (job_id, item.field_key),
+            ).fetchone()
+            definition = (item.section, item.label, item.field_type, int(item.required), json.dumps(item.options))
+            if previous is not None and tuple(previous) != definition:
+                connection.execute(
+                    "UPDATE application_fields SET value=NULL, status='missing', disposition='pending', validation_error=NULL WHERE job_id=? AND field_key=?",
+                    (job_id, item.field_key),
+                )
             connection.execute(
                 """
                 INSERT INTO application_fields
