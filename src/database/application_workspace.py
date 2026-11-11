@@ -18,7 +18,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def save_inspection(job_id: int, inspection: ApplicationInspection) -> None:
+def save_inspection(job_id: int, inspection: ApplicationInspection, *, preserve_fields: bool = False) -> None:
     connection = get_connection()
     try:
         apply_migrations(connection)
@@ -74,7 +74,7 @@ def save_inspection(job_id: int, inspection: ApplicationInspection) -> None:
                 ),
             )
         keys = [item.field_key for item in inspection.fields]
-        if keys:
+        if keys and not preserve_fields:
             placeholders = ",".join("?" for _ in keys)
             connection.execute(
                 f"DELETE FROM application_fields WHERE job_id = ? AND field_key NOT IN ({placeholders}) AND COALESCE(value, '') = '';",

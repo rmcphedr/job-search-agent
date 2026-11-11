@@ -241,3 +241,52 @@ def approve_answer(run_id: int, field_key: str, answer: str) -> dict[str, Any]:
         raise
     finally:
         db.close()
+
+
+def read_application_run(run_id: int) -> dict[str, Any]:
+    db = get_connection()
+    try:
+        return _row(db, run_id)
+    finally:
+        db.close()
+
+
+def resume_application(run_id: int) -> dict[str, Any]:
+    """Explicit user release of a pause, preserving all durable work."""
+    db = get_connection()
+    try:
+        db.execute('BEGIN IMMEDIATE')
+        if _row(db, run_id)['status'] != 'needs_user':
+            raise ValueError('Only a needs_user run can resume')
+        result = transition_application(run_id, 'queued', connection=db)
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
+def get_review_packet(run_id: int) -> dict[str, Any]:
+    from src.database.application_workspace import get_application_workspace
+    from src.database.application_preparation import list_application_steps
+    from src.applications.answer_agent import answer_path
+    run = read_application_run(run_id)
+    session, fields = get_application_workspace(run['job_id'])
+    db = get_connection()
+    try:
+        job = dict(db.execute('SELECT * FROM job_postings WHERE job_id=?', (run['job_id'],)).fetchone())
+    finally:
+        db.close()
+    drafts = {}
+    for field in fields:
+        path = answer_path(run_id, field['field_key'])
+        if path.is_file():
+            try:
+                drafts[field['field_key']] = json.loads(path.read_text())
+            except (ValueError, OSError):
+                drafts[field['field_key']] = {'error': 'Draft unavailable'}
+    return {'run': run, 'job': job, 'session': session, 'fields': fields,
+            'artifacts': run['checkpoint'].get('artifacts', {}), 'drafts': drafts,
+            'pages': run['checkpoint'].get('pages', []),
+            'validation': run['checkpoint'].get('validation', []),
+            'remaining': [f['field_key'] for f in fields if f['required'] and f['disposition'] != 'provided'],
+            'steps': list_application_steps(run['job_id'])}
