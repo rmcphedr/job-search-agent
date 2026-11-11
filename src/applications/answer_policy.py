@@ -69,8 +69,16 @@ def classify_answer(field: dict[str, Any], evidence: dict[str, Any]) -> str:
     aliases = {item for item in aliases if item}
     for content in valid_profile_sources(evidence).values():
         for line in content.splitlines():
-            normalized = re.sub(r"[*#`-]", "", line).strip().casefold()
-            for alias in aliases:
-                if normalized.startswith(alias + ":") and answer.casefold() in normalized[len(alias) + 1:]:
-                    return "confirmed"
+            # Remove Markdown only from the label area; punctuation in the value
+            # (especially email addresses and hyphenated names) is factual data.
+            unbulleted = re.sub(r"^\s*(?:[-*+]\s+|#{1,6}\s+)", "", line)
+            raw_label, separator, raw_value = unbulleted.partition(":")
+            if not separator:
+                continue
+            source_label = raw_label.strip().strip("*_` ").casefold()
+            source_value = raw_value.strip()
+            if source_value.startswith(("**", "__")):
+                source_value = source_value[2:].strip()
+            if source_label in aliases and source_value.casefold() == answer.casefold():
+                return "confirmed"
     return "approval_required"

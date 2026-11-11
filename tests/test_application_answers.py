@@ -97,3 +97,17 @@ def test_missing_master_profile_requires_approval(monkeypatch):
     monkeypatch.setattr('src.applications.answer_policy.sync_status', lambda root: (False, 'missing'))
     assert classify_answer({'field_key': 'email', 'answer': 'a@example.test'},
                            {'profile_files': {'user/master_cv.md': '- **Email:** a@example.test'}}) == 'approval_required'
+
+
+@pytest.mark.parametrize(('source', 'answer', 'expected'), [
+    ('- **Employer:** Not Acme', 'Acme', 'approval_required'),
+    ('- **Email:** alice@example.com', 'example.com', 'approval_required'),
+    ('- **Email:** alice-smith@example.com', 'alicesmith@example.com', 'approval_required'),
+    ('- **Email:** alice-smith@example.com', 'alice-smith@example.com', 'confirmed'),
+    ('- **Employer:** Not Acme', 'Not Acme', 'confirmed'),
+])
+def test_profile_fact_requires_exact_value(monkeypatch, source, answer, expected):
+    monkeypatch.setattr('src.applications.answer_policy.sync_status', lambda root: (True, 'current'))
+    key = 'email' if 'Email:' in source else 'employer'
+    evidence = {'profile_files': {'user/master_cv.md': source}}
+    assert classify_answer({'field_key': key, 'answer': answer}, evidence) == expected
