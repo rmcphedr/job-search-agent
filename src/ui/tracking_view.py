@@ -9,25 +9,17 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.applications.inspection import inspect_application
-from src.applications.generic_form import submit_generic_application
+from src.database.application_runs import (get_application_run, get_review_packet, approve_answer,
+    set_application_mode, cancel_application, resume_application, transition_application)
 from src.database.application_preparation import (
-    list_application_steps,
-    preparation_is_complete,
     start_application_preparation,
     update_application_step,
 )
-from src.database.application_automation import application_readiness
 from src.database.application_submissions import (
     get_latest_application_submission,
     record_application_submission,
 )
 from src.database.application_workspace import (
-    get_application_workspace,
-    prefill_generated_cover_letter,
-    prefill_generated_resume,
-    prefill_from_master_profile,
-    save_inspection,
     update_application_field,
 )
 from src.database.tracked_jobs import (
@@ -46,15 +38,11 @@ from src.documents.resume_editor import (
     render_docx_preview,
     save_html_to_docx,
 )
-from src.integrations.resume_pipeline import (
-    format_resume_step_details,
-    run_cover_letter_generation,
-    run_resume_generation,
-)
+
 from src.jobs.description_enrichment import mark_job_expired
 from src.ui.actions import refresh_data
 from src.ui.data_loader import get_current_job_by_id
-from src.ui.review_view import render_job_summary_card
+from src.ui.review_view import render_job_summary_card, render_application_choices
 from src.ui.theme import inject_tracking_theme
 
 PIPELINE = ("tracked", "applying", "applied", "interviewing", "accepted")
@@ -142,6 +130,9 @@ def _render_detail_view(job_id: int) -> None:
             st.metric("Degree of fit", f"{float(fit):.1f} / 10")
 
     _render_pipeline(str(tracked.get("stage", "tracked")))
+
+    if str(tracked.get("stage")) in {"tracked", "applying"} or get_application_run(job_id):
+        _render_application_run(job_id)
 
     submission = get_latest_application_submission(job_id)
     if submission:
@@ -291,139 +282,79 @@ def _render_preparation_view(job_id: int) -> None:
 
 
 def _render_application_workspace(job_id: int, source_url: str) -> None:
-    if prefill_generated_cover_letter(job_id):
-        pending_key = f"pending_application_field_{job_id}_cover_letter"
-        _, recovered_fields = get_application_workspace(job_id)
-        recovered = next(
-            (str(field.get("value") or "") for field in recovered_fields if field.get("field_key") == "cover_letter"),
-            "",
-        )
-        if recovered:
-            st.session_state[pending_key] = recovered
-    session, fields = get_application_workspace(job_id)
-    st.subheader("Application workspace")
-    application_url = st.text_input(
-        "Application URL",
-        value=str(session.get("application_url") if session else source_url),
-        key=f"application_url_{job_id}",
-        help="Use the employer application URL, which may differ from the discovery URL.",
-    )
-    if st.button("Inspect application", key=f"inspect_application_{job_id}"):
-        with st.spinner("Opening the application and mapping its requirements…"):
-            try:
-                inspection = inspect_application(application_url.strip())
-                save_inspection(job_id, inspection)
-                prefill_from_master_profile(job_id)
-                prefill_generated_resume(job_id)
-                update_application_step(
-                    job_id,
-                    "requirements",
-                    status="complete",
-                    details=(
-                        f"Provider: {inspection.provider}\n"
-                        f"Current page: {inspection.current_page}\n"
-                        f"Detected fields: {len(inspection.fields)}\n"
-                        f"Account required: {'yes' if inspection.requires_account else 'no'}\n"
-                        f"Privacy consent gate: {'yes' if inspection.privacy_consent_required else 'no'}\n"
-                        f"CAPTCHA gate: {'yes' if inspection.captcha_required else 'no'}\n\n"
-                        + "\n".join(inspection.notes)
-                    ),
-                )
-                refresh_data()
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Application inspection failed: {exc}")
+    _render_application_run(job_id)
 
-    if not session:
-        st.caption("Inspect the employer application to create editable review sections.")
-        return
 
-    gate_labels = []
-    if session.get("requires_account"):
-        gate_labels.append("Account creation requires your participation")
-    if session.get("privacy_consent_required"):
-        gate_labels.append("Privacy consent requires your approval")
-    if session.get("captcha_required"):
-        gate_labels.append("CAPTCHA requires your participation")
-    if gate_labels:
-        st.warning(" · ".join(gate_labels))
-
-    readiness = application_readiness(job_id)
-    classification = str(session.get("automation_class") or "assisted").replace("_", " ").title()
-    st.caption(f"Automation: **{classification}** — {session.get('classification_reason') or 'Classification pending.'}")
-    metric_columns = st.columns(3)
-    metric_columns[0].metric("Required fields", readiness["required_count"])
-    metric_columns[1].metric("Optional fields", readiness["optional_count"])
-    metric_columns[2].metric("Validation errors", len(readiness["validation_errors"]))
-    if readiness["required_missing"]:
-        st.error("Required values missing: " + ", ".join(readiness["required_missing"]))
-    if readiness["validation_errors"]:
-        st.error("Validation errors: " + " · ".join(f"{item['field']}: {item['error']}" for item in readiness["validation_errors"]))
-    if readiness["optional_missing"]:
-        st.caption("Optional and not provided: " + ", ".join(readiness["optional_missing"]))
-
-    grouped: dict[str, list[dict]] = {}
-    for field in fields:
-        grouped.setdefault(str(field["section"]), []).append(field)
-    section_labels = {
-        "contact_details": "Contact details",
-        "resume": "Resume",
-        "cover_letter": "Cover letter",
-        "additional_documents": "Additional documents",
-        "questions": "Questions",
-    }
-    available_sections = list(grouped)
-    active_key = f"application_workspace_section_{job_id}"
-    if st.session_state.get(active_key) not in available_sections:
-        st.session_state[active_key] = available_sections[0] if available_sections else None
-
-    navigation, detail = st.columns([1, 3], gap="large")
-    with navigation:
-        st.markdown("#### Review sections")
-        for section in available_sections:
-            section_fields = grouped[section]
-            completed = sum(bool(str(field.get("value") or "").strip()) for field in section_fields)
-            icon = "✓" if completed == len(section_fields) else "○"
-            label = section_labels.get(section, section.replace("_", " ").title())
-            if st.button(
-                f"{icon}  {label}",
-                key=f"workspace_section_{job_id}_{section}",
-                type="primary" if st.session_state[active_key] == section else "secondary",
-                width="stretch",
-            ):
-                st.session_state[active_key] = section
-                st.rerun()
-        st.caption("Select a section to review it without leaving the application workspace.")
-
-    with detail:
-        active_section = str(st.session_state.get(active_key) or "")
-        active_label = section_labels.get(active_section, active_section.replace("_", " ").title())
-        st.markdown(f"### {active_label}")
-        _render_workspace_section(job_id, active_section, grouped.get(active_section, []))
-
-    if str(session.get("automation_class")) in {"automatable", "assisted"}:
-        st.divider()
-        confirmed = st.checkbox(
-            "I reviewed these values and authorize the agent to upload documents and submit them to this employer.",
-            key=f"confirm_agent_submission_{job_id}",
-        )
-        if st.button("Submit application with agent", type="primary", width="stretch", disabled=not readiness["ready"] or not confirmed):
-            reviewed = {str(field["field_key"]): str(field.get("value") or "") for field in fields}
-            with st.spinner("Filling and submitting the reviewed application…"):
-                try:
-                    submit_generic_application(str(session["application_url"]), reviewed)
-                    record_application_submission(job_id, method="agent_browser_submission")
-                    refresh_data()
-                    st.success("The employer confirmed receipt. The job was moved to Applied.")
-                    st.session_state.tracking_view_mode = "detail"
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Application submission failed: {exc}")
+def _run_control(action, *args) -> None:
+    try:
+        action(*args)
+    except ValueError as exc:
+        st.error(str(exc))
     else:
-        st.info(
-            "Browser filling and Questionnaire discovery unlock after required values and documents "
-            "are reviewed. Final submission will always remain a separate confirmation."
-        )
+        refresh_data()
+        st.rerun()
+
+
+def _authorize_completion(run_id: int) -> None:
+    set_application_mode(run_id, "fully_automate")
+    transition_application(run_id, "queued")
+
+
+def _render_application_run(job_id: int) -> None:
+    run = get_application_run(job_id)
+    if not run:
+        render_application_choices(job_id)
+        return
+    packet = get_review_packet(run["run_id"])
+    run_id, status = run["run_id"], run["status"]
+    st.subheader("Application worker")
+    if st.button("Refresh progress", key=f"refresh_run_{run_id}"):
+        refresh_data()
+        st.rerun()
+    st.write(f"Mode: {run['mode'].replace('_', ' ')} · Status: {status.replace('_', ' ')}")
+    if run.get("pause_reason"):
+        st.warning(f"Handoff: {run['pause_reason']}")
+    session = packet.get("session") or {}
+    if session.get("application_url"):
+        st.link_button("Employer application", session["application_url"])
+    st.caption(f"Current page: {session.get('current_page') or 'Waiting for inspection'}")
+    if status == "submission_uncertain":
+        st.error("Submission uncertain — inspect the employer portal or reconcile a confirmed manual submission below. Do not retry submission.")
+    if status == "ready_for_review":
+        st.info("Draft packet ready. The worker stopped before final submission. Review the packet or take over the employer browser.")
+    editable = status in {"needs_user", "ready_for_review"} and not run.get("submission_attempted_at")
+    st.markdown("#### Review packet")
+    st.write({key: packet.get(key) for key in ("artifacts", "pages", "remaining", "validation")})
+    for field in packet.get("fields", []):
+        key = field["field_key"]
+        draft = packet.get("drafts", {}).get(key)
+        st.write(f"{field.get('label', key)} · {field.get('status', 'pending')}")
+        if draft:
+            st.caption(f"Draft: {draft.get('approval_status', 'unavailable')} · Sources: {', '.join(draft.get('evidence_refs', []))}")
+            value = st.text_area(field.get("label", key), value=field.get("value") or draft.get("answer", ""), key=f"run_answer_{run_id}_{key}", disabled=not editable)
+            if editable and st.button("Approve answer", key=f"approve_{run_id}_{key}"):
+                _run_control(approve_answer, run_id, key, value)
+        else:
+            st.write(field.get("value") or "Not provided")
+    if editable:
+        for section in ("resume", "cover_letter"):
+            fields = [f for f in packet.get("fields", []) if f.get("section") == section]
+            if fields:
+                _render_workspace_section(job_id, section, fields)
+    mutable = status not in {"submitted", "cancelled", "failed", "submission_uncertain", "submitting"} and not run.get("submission_attempted_at")
+    if mutable:
+        modes = ["fully_automate", "draft_for_review"]
+        mode = st.selectbox("Run mode", modes, index=modes.index(run["mode"]), format_func=lambda x: x.replace("_", " ").title(), key=f"mode_{run_id}")
+        if st.button("Save mode", key=f"save_mode_{run_id}"):
+            _run_control(set_application_mode, run_id, mode)
+        if status == "needs_user" and st.button("Resume", key=f"resume_{run_id}"):
+            _run_control(resume_application, run_id)
+        if status == "ready_for_review" and st.button("Authorize agent to finish and submit", key=f"finish_{run_id}"):
+            _run_control(_authorize_completion, run_id)
+        if st.button("Cancel application", key=f"cancel_{run_id}"):
+            _run_control(cancel_application, run_id)
+        st.caption("Cancellation stops local work; it does not undo data already saved by the employer.")
+    st.caption("Run the local worker separately: python -m src.orchestration.application_worker --watch")
 
 
 def _render_workspace_section(job_id: int, section: str, fields: list[dict]) -> None:
@@ -468,76 +399,10 @@ def _render_workspace_section(job_id: int, section: str, fields: list[dict]) -> 
 
 
 def _render_resume_controls(job_id: int, value: str) -> None:
-    button_label = "Regenerate tailored resume" if editable_resume_path(value) else "Generate tailored resume"
-    if st.button(button_label, type="primary", key=f"generate_resume_workspace_{job_id}"):
-        job = get_current_job_by_id(job_id)
-        if job is None:
-            st.error("Job details are unavailable.")
-            return
-        update_application_step(job_id, "resume", status="in_progress", details="Resume agent started.")
-        with st.spinner("Tailoring, validating, and building the resume…"):
-            try:
-                result = run_resume_generation(job)
-                details = format_resume_step_details(result)
-                update_application_step(job_id, "resume", status="complete" if result.complete else "pending", details=details)
-                if result.complete:
-                    prefill_generated_resume(job_id)
-                else:
-                    st.error("Resume generation did not complete.")
-            except Exception as exc:
-                update_application_step(job_id, "resume", status="pending", details=f"Resume generation failed: {exc}")
-                st.error(f"Resume generation failed: {exc}")
-        refresh_data()
-        st.rerun()
     _render_docx_editor(job_id, "resume", value, "Resume")
 
 
 def _render_cover_letter_controls(job_id: int, value: str) -> None:
-    button_label = "Regenerate cover letter" if editable_resume_path(value) else "Generate cover letter"
-    if st.button(button_label, type="primary", key=f"generate_cover_letter_{job_id}"):
-        job = get_current_job_by_id(job_id)
-        if job is None:
-            st.error("Job details are unavailable.")
-            return
-        update_application_step(
-            job_id,
-            "cover_letter",
-            status="in_progress",
-            details="Cover-letter agent started.",
-        )
-        with st.spinner("Drafting and building the cover letter…"):
-            try:
-                result = run_cover_letter_generation(job)
-                details = format_resume_step_details(result)
-                if result.cover_letter_complete:
-                    path = str(result.artifacts["cover_letter_docx"])
-                    update_application_field(job_id, "cover_letter", path)
-                    st.session_state[f"pending_application_field_{job_id}_cover_letter"] = path
-                    update_application_step(
-                        job_id,
-                        "cover_letter",
-                        status="complete",
-                        details=details,
-                    )
-                else:
-                    update_application_step(
-                        job_id,
-                        "cover_letter",
-                        status="pending",
-                        details=details,
-                    )
-                    st.error("Cover-letter generation did not return an editable DOCX. See the step details below.")
-            except Exception as exc:
-                update_application_step(
-                    job_id,
-                    "cover_letter",
-                    status="pending",
-                    details=f"Cover-letter generation failed: {exc}",
-                )
-                st.error(f"Cover-letter generation failed: {exc}")
-        refresh_data()
-        st.rerun()
-
     _render_docx_editor(job_id, "cover_letter", value, "Cover letter")
 
 
@@ -612,45 +477,6 @@ def _render_preparation_step(job_id: int, step: dict) -> None:
     icon = "✓" if status in {"complete", "not_required"} else "◌" if status == "pending" else "↻"
     label = f"{icon}  {step.get('position')}. {step.get('title')}"
     with st.expander(label, expanded=status == "in_progress"):
-        if str(step.get("step_key")) == "resume" and status not in {"complete", "not_required"}:
-            st.caption(
-                "Runs the isolated resume-agent against the canonical evidence in the "
-                "resume-generation pipeline, then validates and builds the DOCX."
-            )
-            if st.button("Generate tailored resume", type="primary", key=f"run_resume_agent_{job_id}"):
-                job = get_current_job_by_id(job_id)
-                if job is None:
-                    st.error("Job details are unavailable.")
-                else:
-                    update_application_step(
-                        job_id,
-                        "resume",
-                        status="in_progress",
-                        details="Resume agent started.",
-                    )
-                    with st.spinner("Tailoring and validating the resume…"):
-                        try:
-                            result = run_resume_generation(job)
-                            detail_text = format_resume_step_details(result)
-                            update_application_step(
-                                job_id,
-                                "resume",
-                                status="complete" if result.complete else "pending",
-                                details=detail_text,
-                            )
-                            if not result.complete:
-                                st.error("Resume generation did not complete. Expand this step for details.")
-                        except Exception as exc:
-                            update_application_step(
-                                job_id,
-                                "resume",
-                                status="pending",
-                                details=f"Resume generation failed: {exc}",
-                            )
-                            st.error(f"Resume generation failed: {exc}")
-                    refresh_data()
-                    st.rerun()
-
         status_options = ["pending", "in_progress", "complete", "not_required"]
         new_status = st.selectbox(
             "Status",

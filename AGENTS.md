@@ -171,3 +171,28 @@ Existing modules remain the deterministic backbone:
 ## Dashboard
 
 The Streamlit dashboard (`app/dashboard.py`) continues to work against existing paths. It will adopt `data/company_evaluations.csv` and `reports/` in a later milestone.
+
+
+## Approval-driven applications
+
+Quick Review offers **Fully automate** and **Draft for review** for each job,
+independent of fit score. The click enqueues a job-specific durable run; it never
+runs a model or browser inside Streamlit. Start the separate local worker:
+
+```bash
+python -m src.orchestration.application_worker --watch
+```
+
+Keep the computer awake while working. The worker opens an isolated visible
+browser and pauses for accounts, verification, CAPTCHA, consent, unknown answers,
+or unsupported controls. Tracking shows the handoff reason and review packet.
+Edit and approve staged answers, complete browser gates, then click Resume.
+Draft mode stops before final submission; **Authorize agent to finish and submit**
+explicitly releases the reviewed packet. Mode changes and cancellation are
+explicit per-run actions. Cancellation cannot undo employer-side saved data.
+
+An uncertain submission must be inspected or manually reconciled; never retry
+its final submit. The existing **Mark application submitted** action records a
+user-confirmed external submission. Only verified or reconciled submissions
+advance Applied. See [ADR-021](docs/adr/ADR-021-approval-driven-application-worker.md)
+and the application-run contract in DATA_CONTRACT.md.

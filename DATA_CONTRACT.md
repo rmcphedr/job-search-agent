@@ -304,8 +304,8 @@ Python-owned local records supporting assisted form filling:
   `not_applicable`, or `human_required`.
 - `application_fields.validation_error`: latest provider-side validation message.
 - `application_sessions.automation_class`: `automatable`, `assisted`, or
-  `manual`. Final submission always remains human-controlled.
-- `application_submissions`: immutable JSON snapshots created only after the
+  `manual`. Run mode and readiness policy govern final submission (ADR-021).
+- `application_submissions`: immutable JSON snapshots created after verified employer confirmation or the
   user confirms an external submission. Each captures reviewed contact fields,
   document paths and dispositions, and saved questionnaire facts; the same
   transaction moves the tracked job to `applied`.
@@ -382,3 +382,33 @@ On validation failure: reject file, log errors, do not partial-merge invalid row
 Not committed: `data/staging/*`, `data/source_evidence/*`, `data/cache/`, `data/raw/`, `*.db`, `outputs/*`, `.env`.
 
 Seed file committed: `data/company_inventory.csv`.
+
+
+### Approval-driven application runs
+
+`application_runs` is Python-owned canonical SQLite state: `run_id`, `job_id`,
+`mode` (`fully_automate` or `draft_for_review`), `status`, `pause_reason`,
+`checkpoint_json`, `lease_owner`, `lease_expires_at`, `attempt_count`,
+`submission_attempted_at`, `claimed_at`, `last_error`, `created_at`, and `updated_at`. One nonterminal run
+per job is enforced. Modes are explicitly chosen per job, never inferred from
+fit scores. Statuses are queued, inspecting, preparing, filling, needs_user,
+ready_for_review, submitting, submitted, submission_uncertain, failed, cancelled.
+
+`data/staging/application_runs/<run_id>/request_<field_key>.json` and
+`answer_<field_key>.json` contain answer-agent requests and typed `AnswerDraft`
+objects (`field_key`, `answer`, `evidence_refs`, `approval_status`). Python
+validates these and `approve_answer` writes the user-approved answer into
+`application_fields`, recording an audit event. Agents never write SQLite.
+Approval is per answer/run, not permission to invent reusable facts.
+
+The review packet is a view over the run checkpoint, workspace fields, staged
+drafts, and preparation steps. Artifact paths, inspected pages, validation,
+and remaining required fields are not a second canonical store. Browser profiles
+and minimal evidence remain local, access-restricted, and excluded from Git.
+
+The worker records `submission_attempted_at` before the final action. Verified
+employer confirmation creates the immutable submission snapshot and Applied
+milestone transactionally. Ambiguous results remain submission_uncertain with
+no retry action. Manual reconciliation explicitly confirms external completion.
+The separate local `python -m src.orchestration.application_worker --watch`
+process owns browser/model work; the dashboard only invokes durable control APIs.

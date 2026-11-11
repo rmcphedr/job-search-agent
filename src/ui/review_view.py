@@ -8,6 +8,7 @@ import json
 import pandas as pd
 import streamlit as st
 
+from src.database.application_runs import enqueue_application
 from src.database.job_reviews import get_review_decisions, set_review_decision
 from src.database.tracked_jobs import get_tracked_stage_map, track_job
 from src.jobs.description_enrichment import mark_job_expired
@@ -153,7 +154,23 @@ def _render_actions(job_id: int, inbox_size: int) -> None:
             set_review_decision(job_id, "accepted")
             _after_decision()
 
+    render_application_choices(job_id)
+
     st.caption("Maybe jobs stay in the inbox and rotate behind unreviewed roles." if inbox_size > 1 else "Your decision is saved immediately.")
+
+
+def render_application_choices(job_id: int) -> None:
+    """The same job-specific authorization choices at every fit score."""
+    st.caption("Fully automate authorizes this job's final submission. Draft for review stops before submission. Portals may save partial applications during either mode.")
+    for col, label, mode in zip(st.columns(2), ("Fully automate", "Draft for review"), ("fully_automate", "draft_for_review")):
+        with col:
+            if st.button(label, key=f"application_{mode}_{job_id}", width="stretch"):
+                try:
+                    enqueue_application(job_id, mode)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    _after_decision()
 
 
 def _after_decision() -> None:

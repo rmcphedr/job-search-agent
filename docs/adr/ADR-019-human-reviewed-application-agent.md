@@ -1,6 +1,6 @@
 # ADR-019: Human-reviewed application agent
 
-**Status:** Accepted  
+**Status:** Superseded by [ADR-021](ADR-021-approval-driven-application-worker.md)
 **Date:** 2026-08-06  
 **Deciders:** Project maintainer and coding agent
 
