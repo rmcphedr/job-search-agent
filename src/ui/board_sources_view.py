@@ -25,6 +25,7 @@ HEALTH_ICONS = {
     "stub": "⬜",
     "not_run": "🔵",
     "unknown": "⚫",
+    "stale": "🟠",
 }
 
 BOARD_DISPLAY_COLUMNS = (
@@ -45,7 +46,7 @@ BOARD_DISPLAY_COLUMNS = (
 )
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def _load_board_health_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     frame = build_board_health_frame()
     ats = build_employer_ats_source_frame()
@@ -129,7 +130,7 @@ def _render_summary_metrics(
     col1.metric("Boards configured", summary["total_boards"])
     col2.metric("Enabled", summary["enabled_boards"])
     col3.metric("Healthy", summary["healthy_boards"])
-    col4.metric("Warning / error", summary["warning_boards"] + summary["error_boards"])
+    col4.metric("Stale / warning / error", summary["stale_boards"] + summary["warning_boards"] + summary["error_boards"])
     col5.metric("Board jobs", summary["total_board_jobs"])
     col6.metric("ATS employers / other jobs", f"{ats_employers} / {other_jobs}")
 

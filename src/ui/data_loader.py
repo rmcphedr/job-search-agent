@@ -71,6 +71,7 @@ JOBS_DISPLAY_COLUMNS = (
     "title",
     "location",
     "source_board",
+    "source_channel",
     "keyword_score",
     "fit_score",
     "fit_reason",
@@ -87,6 +88,7 @@ SELECT
     j.title,
     j.location,
     j.source_board,
+    j.source_channel,
     j.keyword_score,
     j.matched_keywords,
     j.fit_score,
@@ -212,7 +214,7 @@ def load_company_inventory() -> pd.DataFrame:
     return frame
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=300)
 def load_jobs_from_db() -> pd.DataFrame:
     """Load job postings joined with company names from SQLite."""
     empty = pd.DataFrame(columns=[*JOBS_DISPLAY_COLUMNS, "job_id", "company_id", "description"])
@@ -596,6 +598,9 @@ def get_current_job_by_id(job_id: int | str) -> dict[str, Any] | None:
     query = JOBS_QUERY.rsplit("ORDER BY", maxsplit=1)[0] + "WHERE j.job_id = ?;"
     connection = get_connection()
     try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(job_postings)")}
+        if "source_channel" not in columns:
+            query = query.replace("j.source_channel,", "NULL AS source_channel,")
         frame = pd.read_sql_query(query, connection, params=(normalized_job_id,))
     finally:
         connection.close()

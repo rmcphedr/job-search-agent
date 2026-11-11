@@ -18,6 +18,7 @@ from src.orchestration.events import emit_event, read_events_since
 from src.orchestration.handlers import (
     merge_company_candidate_file,
     merge_company_evaluation_file,
+    merge_job_candidate_file,
     merge_job_evaluation_file,
 )
 from src.orchestration.manifest import create_run_manifest, load_manifest
@@ -58,6 +59,7 @@ def temp_project(tmp_path, monkeypatch):
     import yaml
 
     (settings_path / "settings.yaml").write_text(yaml.dump(settings), encoding="utf-8")
+    (settings_path / "job_board_sources.yaml").write_text("boards: []\njob_board_domains: []\n", encoding="utf-8")
 
     from src.database import db as db_module
     from src.discovery import update_inventory as inventory_module
@@ -95,6 +97,44 @@ def test_load_staging_single_object(tmp_path):
     assert not errors
     assert len(records) == 1
     assert records[0].company_name == "Acme Health AI"
+
+
+def test_merge_job_candidate_uses_validated_python_storage(temp_project, monkeypatch):
+    from src.database.db import get_connection, SCHEMA_FILE
+    from src.database.migrate import apply_migrations
+
+    db_path = temp_project / "data" / "job_search.db"
+    conn = get_connection(db_path)
+    conn.executescript(SCHEMA_FILE.read_text())
+    apply_migrations(conn)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr("src.jobs.save_jobs.get_connection", lambda: get_connection(db_path))
+
+    path = temp_project / "data" / "staging" / "job_candidates_test-run.json"
+    path.write_text(json.dumps([{
+        "company_name": "Acme AI", "title": "ML Scientist", "location": "Montreal, QC",
+        "url": "https://acme.example/jobs/1", "description": "Verified job description",
+        "provider": "company_careers", "source_career_page": "https://acme.example/careers",
+    }]))
+
+    result = merge_job_candidate_file(path)
+    assert result.success and result.records_merged == 1
+    conn = get_connection(db_path)
+    job = conn.execute("SELECT fit_score,description_status,discovery_run_id FROM job_postings").fetchone()
+    assert tuple(job) == (None, "enriched", "test-run")
+    assert conn.execute("SELECT status FROM job_evaluation_queue").fetchone()[0] == "queued"
+    conn.close()
+
+    invalid_path = temp_project / "data" / "staging" / "job_candidates_bad-run.json"
+    invalid_path.write_text(json.dumps([{"company_name": "Broken", "title": "", "source_career_page": ""}]))
+    rejected = merge_job_candidate_file(invalid_path)
+    assert not rejected.success
+    assert not invalid_path.exists()
+    assert (temp_project / "data" / "staging" / "runs" / "bad-run" / "rejected" / invalid_path.name).exists()
+    conn = get_connection(db_path)
+    assert conn.execute("SELECT count(*) FROM job_postings").fetchone()[0] == 1
+    conn.close()
 
 
 def test_create_run_manifest(temp_project):
@@ -154,6 +194,42 @@ def test_merge_company_candidate_inserts_and_emits_event(temp_project):
     events = read_events_since(event_types={"company.merged"}, run_id=run_id, log_path=temp_project / "data" / "events" / "event_log.jsonl")
     assert len(events) == 1
     assert events[0].payload["company_name"] == "Zephyr Staging Test Co"
+
+
+def test_merge_company_candidate_preserves_requested_priority(temp_project):
+    run_id = "20260929T140000Z"
+    create_run_manifest(run_id)
+    candidate_path = (
+        temp_project
+        / "data"
+        / "staging"
+        / "runs"
+        / run_id
+        / "company_candidates"
+        / "priority-test-co.json"
+    )
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    candidate_path.write_text(
+        json.dumps(
+            {
+                "company_name": "Priority Test Co",
+                "website": "https://priority-test.example",
+                "source_id": "manual_research",
+                "source_name": "Manual research",
+                "source_url": "https://priority-test.example/careers",
+                "confidence": 0.9,
+                "priority": "High",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = merge_company_candidate_file(candidate_path)
+
+    assert result.success
+    inventory = pd.read_csv(temp_project / "data" / "company_inventory.csv")
+    row = inventory[inventory["company_name"] == "Priority Test Co"].iloc[0]
+    assert row["priority"] == "High"
 
 
 def test_merge_evaluation_skips_without_force_re_eval(temp_project):

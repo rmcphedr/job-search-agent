@@ -15,9 +15,12 @@ logger = logging.getLogger(__name__)
 
 PERSISTENT_ERROR_MARKERS = (
     "403 Client Error",
+    "404 Client Error",
+    "429 Client Error",
     "SSLError",
     "NameResolutionError",
     "Connection refused",
+    "Board blocked:",
 )
 
 

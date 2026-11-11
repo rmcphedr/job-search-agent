@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from src.jobs.board_discovery.config import BoardSource
 from src.jobs.board_health import (
     BoardRunSnapshot,
@@ -51,13 +53,14 @@ def test_classify_board_health_states() -> None:
         adapter="jobbank",
         enabled=True,
     )
-    healthy, _ = classify_board_health(board, job_total=5, last_run=None)
-    assert healthy == "healthy"
+    unverified, _ = classify_board_health(board, job_total=5, last_run=None)
+    assert unverified == "not_run"
 
     warning, _ = classify_board_health(
         board,
         job_total=0,
-        last_run=BoardRunSnapshot(source_id="jobbank", run_at="now", raw_jobs=0, queries_run=2),
+        last_run=BoardRunSnapshot(source_id="jobbank", run_at="2026-11-10 12:00:00", raw_jobs=0, queries_run=2),
+        now=datetime(2026, 11, 10, 13, tzinfo=timezone.utc),
     )
     assert warning == "warning"
 
@@ -73,3 +76,16 @@ def test_classify_board_health_states() -> None:
         ),
     )
     assert error == "error"
+
+
+def test_old_successful_run_is_stale_even_with_historical_jobs() -> None:
+    board = BoardSource(source_id="jobbank", name="Job Bank", adapter="jobbank")
+    state, _ = classify_board_health(
+        board,
+        job_total=5,
+        last_run=BoardRunSnapshot(
+            source_id="jobbank", run_at="2026-08-06 12:00:00", raw_jobs=10, queries_run=2
+        ),
+        now=datetime(2026, 11, 10, tzinfo=timezone.utc),
+    )
+    assert state == "stale"

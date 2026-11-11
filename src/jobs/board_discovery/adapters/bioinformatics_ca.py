@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 from src.jobs.board_discovery.config import BoardSource
 from src.jobs.board_discovery.http import BoardHttpClient
-from src.jobs.board_discovery.parsers import absolute_url, build_candidate
+from src.jobs.board_discovery.parsers import build_candidate
 from src.jobs.job_models import JobCandidate
 
 
@@ -22,19 +22,12 @@ class BioinformaticsCaAdapter:
         client: BoardHttpClient,
         max_pages: int,
     ) -> list[JobCandidate]:
-        candidates: list[JobCandidate] = []
+        del query, location, max_pages
         base = source.base_url.rstrip("/")
-        search_path = source.search_path or "/jobs"
+        search_path = source.search_path or "/Jobs/"
         search_url = f"{base}{search_path}"
-
-        try:
-            html = client.get(search_url, params={"s": query})
-        except Exception:
-            return candidates
-
-        page_candidates = self._parse_listing(html, source=source, search_url=search_url, base=base, query=query)
-        candidates.extend(page_candidates)
-        return candidates
+        html, final_url = client.get_with_url(search_url)
+        return self._parse_listing(html, source=source, search_url=final_url)
 
     def _parse_listing(
         self,
@@ -42,25 +35,25 @@ class BioinformaticsCaAdapter:
         *,
         source: BoardSource,
         search_url: str,
-        base: str,
-        query: str,
     ) -> list[JobCandidate]:
         soup = BeautifulSoup(html, "html.parser")
         results: list[JobCandidate] = []
-        query_lower = query.lower()
 
-        for row in soup.select("article, .job, tr, li"):
-            title_el = row.select_one("h2 a, h3 a, .entry-title a, a")
+        for row in soup.select("article.biohub-psc-card--job"):
+            title_el = row.select_one("h3.biohub-psc-card__title a[href]")
             if title_el is None:
                 continue
             title = title_el.get_text(" ", strip=True)
-            if not title or query_lower not in title.lower():
+            url = str(title_el.get("href") or "")
+            if not title or "/en/jobs/" not in url:
                 continue
-            company_el = row.select_one(".company, .employer, .organization")
-            location_el = row.select_one(".location")
-            company = company_el.get_text(" ", strip=True) if company_el else "Unknown employer"
-            location_text = location_el.get_text(" ", strip=True) if location_el else None
-            url = absolute_url(base, title_el.get("href"))
+            attrs = row.select(".biohub-psc-card__attr span")
+            if len(attrs) < 2:
+                continue
+            location_text = attrs[0].get_text(" ", strip=True)
+            company = attrs[1].get_text(" ", strip=True)
+            if not location_text or not company:
+                continue
 
             candidate = build_candidate(
                 source=source,

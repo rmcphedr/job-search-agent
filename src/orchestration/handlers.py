@@ -16,6 +16,8 @@ from src.database.migrate import apply_migrations
 from src.discovery.models import CompanyCandidate
 from src.discovery.update_inventory import get_inventory_path, update_inventory
 from src.llm.schemas import CompanyFitResult, JobFitResult
+from src.jobs.job_models import JobCandidate
+from src.jobs.save_jobs import save_jobs
 from src.orchestration.evaluation_store import has_company_evaluation, upsert_company_evaluation
 from src.orchestration.events import emit_event
 from src.orchestration.manifest import (
@@ -437,6 +439,45 @@ def merge_job_evaluation_file(path: Path, *, emit_events: bool = True) -> MergeR
     )
 
 
+def merge_job_candidate_file(path: Path, *, emit_events: bool = True) -> MergeResult:
+    """Validate a complete candidate batch before Python persists any job."""
+    run_id = infer_run_id_from_path(path)
+    records, errors = load_staging_records(path, JobCandidate)
+    if errors or not records:
+        if path.exists():
+            _reject_file(path, errors or ["No valid JobCandidate records"], run_id)
+        if emit_events:
+            emit_event("job.candidates.rejected", run_id=run_id,
+                       payload={"staging_path": str(path), "errors": errors})
+        return MergeResult(
+            success=False, action="reject", run_id=run_id,
+            errors=errors or ["No valid JobCandidate records"],
+        )
+    saved = save_jobs(
+        records, create_company_if_missing=True,
+        pending_evaluation=True, discovery_run_id=run_id,
+    )
+    if emit_events:
+        emit_event(
+            "job.candidates.merged", run_id=run_id,
+            payload={"staging_path": str(path), "inserted": saved.inserted,
+                     "updated": saved.updated, "duplicates": saved.duplicates_skipped},
+        )
+        _record_sqlite_run("staging_merge_job_candidates", {
+            "run_id": run_id, "inserted": saved.inserted,
+            "updated": saved.updated, "duplicates": saved.duplicates_skipped,
+        })
+    if run_id:
+        manifest = load_manifest(run_id)
+        if manifest:
+            mark_file_processed(manifest, path)
+            save_manifest(manifest)
+    return MergeResult(
+        success=True, action="merge", run_id=run_id,
+        records_merged=saved.inserted + saved.updated,
+    )
+
+
 def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResult:
     """Route a staging file to the correct merge handler based on path/schema."""
     path = path.resolve()
@@ -450,6 +491,8 @@ def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResul
         return merge_company_evaluation_file(path, force_re_eval=force_re_eval)
     if parent == "job_evaluations" or path.stem.lower().startswith("job_evaluations"):
         return merge_job_evaluation_file(path)
+    if parent == "job_candidates" or path.stem.lower().startswith("job_candidates"):
+        return merge_job_candidate_file(path)
 
     records, errors = load_staging_records(path)
     if errors:
@@ -464,6 +507,8 @@ def merge_staging_file(path: Path, *, force_re_eval: bool = False) -> MergeResul
         return merge_company_evaluation_file(path, force_re_eval=force_re_eval)
     if isinstance(first, JobFitResult):
         return merge_job_evaluation_file(path)
+    if isinstance(first, JobCandidate):
+        return merge_job_candidate_file(path)
 
     return MergeResult(success=False, action="reject", errors=[f"Unsupported staging file: {path}"])
 
@@ -495,6 +540,12 @@ def merge_run_directory(
         if manifest and is_file_processed(manifest, file_path):
             continue
         results.append(merge_staging_file(file_path, force_re_eval=force_re_eval))
+
+    for folder in ("job_candidates", "job_evaluations"):
+        for file_path in sorted((base / folder).glob("*.json")):
+            if manifest and is_file_processed(manifest, file_path):
+                continue
+            results.append(merge_staging_file(file_path))
 
     if manifest:
         manifest = load_manifest(run_id)

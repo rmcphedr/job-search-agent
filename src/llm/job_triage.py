@@ -118,6 +118,9 @@ def triage_jobs(
         return [], 0
     if not enabled:
         return jobs, len(jobs)
+    if client is None and str(load_llm_config().get("provider") or "ollama") != "ollama":
+        logger.info("Skipping title triage because the configured fit provider is not local Ollama.")
+        return jobs, len(jobs)
 
     triaged: list[JobCandidate] = []
     llm_calls = 0

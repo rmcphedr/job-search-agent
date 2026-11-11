@@ -305,7 +305,7 @@ def _candidate_to_row(candidate: CompanyCandidate, company_id: int) -> dict[str,
         "location": "",
         "size": "",
         "hiring_status": "Unknown",
-        "priority": "Medium" if candidate.confidence >= 0.6 else "Low",
+        "priority": candidate.priority or ("Medium" if candidate.confidence >= 0.6 else "Low"),
         "last_checked": "",
         "source_id": candidate.source_id,
         "source_url": format_url_for_csv(candidate.source_url),
@@ -366,11 +366,18 @@ def _fill_empty_fields(row: pd.Series, candidate: CompanyCandidate) -> tuple[pd.
         row["hiring_status"] = candidate_row["hiring_status"]
         updates += 1
 
-    if _is_empty(row.get("priority")):
-        row["priority"] = candidate_row["priority"]
+    if candidate.priority and (
+        _is_empty(row.get("priority"))
+        or _priority_rank(candidate.priority) > _priority_rank(str(row.get("priority", "")))
+    ):
+        row["priority"] = candidate.priority
         updates += 1
 
     return row, updates
+
+
+def _priority_rank(priority: str) -> int:
+    return {"Low": 1, "Medium": 2, "High": 3}.get(priority.strip(), 0)
 
 
 def load_known_lsbc_profile_urls(inventory_path: Path | None = None) -> set[str]:

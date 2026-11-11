@@ -62,3 +62,24 @@ def test_description_enrichment_tracks_current_discovery_run(tmp_path, monkeypat
     assert connection.execute(
         "SELECT status FROM job_evaluation_queue WHERE job_id=1"
     ).fetchone()[0] == "queued"
+
+
+def test_alert_source_keeps_provider_and_discovery_channel_separate(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "jobs.db"
+    connection = get_connection(db_path)
+    connection.executescript(open("src/database/schema.sql", encoding="utf-8").read())
+    apply_migrations(connection)
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr("src.jobs.save_jobs.get_connection", lambda: get_connection(db_path))
+
+    save_jobs([JobCandidate(
+        company_name="Acme", title="Scientist", url="https://acme.test/job/1",
+        description="Verified description", provider="LinkedIn Gmail alert",
+        source_career_page="https://acme.test/careers",
+    )], create_company_if_missing=True, pending_evaluation=True)
+
+    connection = get_connection(db_path)
+    row = connection.execute("SELECT source_board,source_channel FROM job_postings").fetchone()
+    assert tuple(row) == ("linkedin", "gmail_alert")
+    connection.close()

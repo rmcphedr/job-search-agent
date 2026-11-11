@@ -16,6 +16,7 @@ class JobCandidate(BaseModel):
     description: str | None = None
     date_posted: str | None = None
     provider: str | None = None
+    source_channel: str | None = None
     source_career_page: str
     keyword_score: float = 0.0
     matched_keywords: list[str] = Field(default_factory=list)

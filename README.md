@@ -144,38 +144,48 @@ python -m src.jobs.run_job_discovery --limit 50 --sleep 1
 python -m src.database.inspect_db
 ```
 
-This stage extracts job listings and details only. It does not apply to jobs, send emails, or use LLM calls.
+For bounded source refreshes, run `python -m src.jobs.run_scheduled_discovery`
+(enabled phase 1–2 boards plus known employer ATS sources). Add
+`--all-boards` to scan every enabled board, including phase 3, and report
+disabled or excluded sources as skipped. The Monday weekly automation uses
+this full scope without running model evaluation. Add
+`--include-careers --career-limit 25` for a limited career-page pass, or
+`--dry-run` to preview without inserting jobs or logging runs. The JSON output lists current-run
+jobs with verified descriptions that can be selected for the agent evaluation
+queue. The scheduled command disables legacy Ollama scoring for career pages.
+Career-page passes rotate through the inventory; ATS registration limits
+embedded career-page fetches to 20 and refreshes at most 50 registered sources
+per run.
+The older `run_job_discovery` command may still invoke its configured legacy
+LLM scorer. Neither command applies to jobs or sends messages.
 
-## LLM Fit Scoring (Phase 1)
+## LLM Fit Scoring
 
-Score companies and jobs against a structured candidate profile using a local Ollama model. Results are cached on disk and exported to CSV for dashboard integration.
+Score jobs against `user/master_cv.md` with the model in `config/llm.yaml`. The configured model is the free OpenRouter model `nvidia/nemotron-3.5-lightning:free`.
 
-**Requirements:**
-
-- [Ollama](https://ollama.com/) running locally
-- Model installed: `qwen3:30b` (configured in `config/llm.yaml`)
-
-**Verify Ollama is running:**
+Put the key in `.env` at the project root. That file is gitignored, so it does not appear in git status. Open it from the command palette if the sidebar hides it.
 
 ```bash
-ollama list
-curl http://localhost:11434/api/tags
+cp .env.example .env   # only if .env does not already exist
 ```
 
-**Score companies** (reads `data/company_inventory.csv`):
+```bash
+OPENROUTER_API_KEY=sk-or-v1-...
+```
+
+Score recent jobs that already have a real description. Results are written to `job_postings.fit_score` and cached under `data/cache/job_fit/`.
+
+```bash
+python -m src.llm.score_jobs --since-days 2
+python -m src.llm.score_jobs --limit 10
+python -m src.llm.score_jobs --company "Valence Labs"
+python -m src.llm.score_jobs --since-days 2 --force-refresh
+```
+
+A hosted run without `--since-days`, `--limit`, or `--company` stops before calling the API. Switch `provider` to `ollama` in `config/llm.yaml` to use a local model instead. Company scoring uses the same client:
 
 ```bash
 python -m src.llm.score_companies --limit 5
-python -m src.llm.score_companies --company "Valence Labs"
-python -m src.llm.score_companies --force-refresh
-```
-
-**Score jobs** (reads active jobs from SQLite):
-
-```bash
-python -m src.llm.score_jobs --limit 10
-python -m src.llm.score_jobs --company "Valence Labs"
-python -m src.llm.score_jobs --force-refresh
 ```
 
 **Outputs:**

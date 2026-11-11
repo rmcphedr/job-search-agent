@@ -11,6 +11,7 @@ from src.database.db import get_connection
 from src.database.migrate import apply_migrations
 from src.jobs.job_models import JobCandidate
 from src.jobs.job_url_utils import compute_content_hash, normalize_job_url
+from src.jobs.source_provenance import normalize_source
 from src.orchestration.job_evaluation_queue import enqueue_job, sync_job_eligibility
 
 
@@ -181,7 +182,7 @@ def save_jobs(
             fit_score = None if pending_evaluation else _resolve_fit_score(candidate)
             fit_reason = None if pending_evaluation else _build_fit_reason(candidate)
             fit_details = None if pending_evaluation else candidate.fit_details
-            board = source_board or candidate.provider
+            board, channel = normalize_source(source_board or candidate.provider, candidate.source_channel)
             matched_keywords_json = _serialize_matched_keywords(candidate.matched_keywords)
 
             if existing_job_id is not None:
@@ -200,6 +201,7 @@ def save_jobs(
                             fit_details = ?,
                             evaluated_at = CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP ELSE NULL END,
                             source_board = coalesce(?, source_board),
+                            source_channel = coalesce(?, source_channel),
                             discovery_run_id = coalesce(?, discovery_run_id),
                             keyword_score = ?,
                             matched_keywords = ?
@@ -216,6 +218,7 @@ def save_jobs(
                             fit_details,
                             fit_details,
                             board,
+                            channel,
                             discovery_run_id,
                             candidate.keyword_score,
                             matched_keywords_json,
@@ -274,6 +277,7 @@ def save_jobs(
                     fit_details,
                     evaluated_at,
                     source_board,
+                    source_channel,
                     discovery_run_id,
                     keyword_score,
                     matched_keywords,
@@ -281,7 +285,7 @@ def save_jobs(
                     description_source,
                     description_source_url,
                     description_checked_at
-                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END);
+                ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NOT NULL THEN CURRENT_TIMESTAMP END);
                 """,
                 (
                     company_id,
@@ -294,6 +298,7 @@ def save_jobs(
                     fit_details,
                     fit_details,
                     board,
+                    channel,
                     discovery_run_id,
                     candidate.keyword_score,
                     matched_keywords_json,

@@ -3,12 +3,19 @@ from __future__ import annotations
 import sqlite3
 
 from src.database.migrate import apply_migrations
+from src.jobs.employer_ats_discovery import _job_url_board_matches_company
 from src.jobs.employer_ats_sources import (
     backfill_legacy_ats_job_sources,
     identify_ats_source,
     list_ats_sources,
     upsert_ats_source,
 )
+
+
+def test_existing_job_url_must_match_ats_board_owner() -> None:
+    assert _job_url_board_matches_company("Bayesian Health", "https://jobs.ashbyhq.com/bayesianhealth")
+    assert _job_url_board_matches_company("Syneos Health", "https://syneoshealth.wd12.myworkdayjobs.com/Careers")
+    assert not _job_url_board_matches_company("Arbor Neuroscience", "https://jobs.lever.co/convergentresearch")
 
 
 def _connection() -> sqlite3.Connection:

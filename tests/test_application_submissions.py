@@ -47,3 +47,51 @@ def test_submission_snapshots_and_moves_to_applied(monkeypatch, tmp_path: Path) 
     assert tracked["stage"] == "applied" and tracked["applied_at"]
     assert session["status"] == "submitted"
     assert event["event_type"] == "submission_reconciled"
+
+
+def test_external_submission_without_workspace_moves_to_applied(
+    monkeypatch, tmp_path: Path
+) -> None:
+    database = tmp_path / "external-submission.db"
+    connection = _connection(database)
+    connection.executescript(Path("src/database/schema.sql").read_text(encoding="utf-8"))
+    connection.execute(
+        "INSERT INTO companies (company_id, company_name, website) "
+        "VALUES (1, 'M31 AI', 'https://m31.ai')"
+    )
+    connection.execute(
+        """INSERT INTO job_postings
+        (job_id, company_id, title, url, source_board)
+        VALUES (1, 1, 'AI Scientist',
+                'https://www.linkedin.com/jobs/view/4461982832', 'linkedin')"""
+    )
+    connection.execute("INSERT INTO tracked_jobs (job_id, stage) VALUES (1, 'applying')")
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(
+        "src.database.application_submissions.get_connection",
+        lambda: _connection(database),
+    )
+
+    submission = record_application_submission(1)
+
+    assert submission["method"] == "user_confirmed_external"
+    assert submission["provider"] == "linkedin"
+    assert submission["application_url"] == "https://www.linkedin.com/jobs/view/4461982832"
+    assert submission["snapshot"] == {
+        "contact_details": [],
+        "documents": [],
+        "questions": [],
+        "application_fields": [],
+    }
+    connection = _connection(database)
+    tracked = connection.execute(
+        "SELECT stage, applied_at FROM tracked_jobs WHERE job_id = 1"
+    ).fetchone()
+    event = connection.execute(
+        "SELECT provider, event_type FROM application_audit_events WHERE job_id = 1"
+    ).fetchone()
+    connection.close()
+    assert tracked["stage"] == "applied" and tracked["applied_at"]
+    assert event["provider"] == "linkedin"
+    assert event["event_type"] == "submission_reconciled"

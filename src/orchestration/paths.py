@@ -73,4 +73,7 @@ def infer_run_id_from_path(path: Path) -> str | None:
         runs_idx = parts.index("runs")
         return parts[runs_idx + 1]
     except (ValueError, IndexError):
+        for prefix in ("company_candidates_", "company_evaluations_", "job_candidates_", "job_evaluations_"):
+            if path.stem.startswith(prefix):
+                return path.stem.removeprefix(prefix)
         return None

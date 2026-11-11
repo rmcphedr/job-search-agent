@@ -11,7 +11,7 @@ from pathlib import Path
 from src.orchestration.evaluation_policy import load_evaluation_policy
 from src.orchestration.evaluation_submission import submit_job_evaluations
 from src.orchestration.evaluation_worker import claim_evaluation_packet, start_run
-from src.orchestration.job_evaluation_queue import queue_summary
+from src.orchestration.job_evaluation_queue import queue_summary, release_stale_claims
 from src.ui.operations_data import enroll_backlog, preview_backlog
 
 
@@ -31,12 +31,16 @@ def parser() -> argparse.ArgumentParser:
     daily.add_argument("--token-limit", type=int, default=30_000)
     submit = sub.add_parser("submit"); submit.add_argument("--run-id", required=True); submit.add_argument("--queue-ids", required=True); submit.add_argument("--file", type=Path, required=True); submit.add_argument("--model", default="gpt-5.6-terra"); submit.add_argument("--reasoning", default="low")
     sub.add_parser("status")
+    stale = sub.add_parser("release-stale"); stale.add_argument("--confirm", action="store_true")
     return root
 
 
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.command == "status": result = queue_summary()
+    elif args.command == "release-stale":
+        if not args.confirm: raise ValueError("confirmation required to release stale claims")
+        result = {"released": release_stale_claims()}
     elif args.command == "backlog-preview": result = [asdict(r) for r in preview_backlog(limit=args.limit, verified_only=args.verified_only)]
     elif args.command == "backlog-enroll": result = {"enrolled": enroll_backlog([int(x) for x in args.job_ids.split(',')], confirm=args.confirm, max_jobs=args.max_jobs, token_limit=args.token_limit)}
     elif args.command == "claim":

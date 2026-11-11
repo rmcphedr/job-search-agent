@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pandas as pd
@@ -20,6 +21,7 @@ HEALTH_LABELS = {
     "stub": "Not implemented",
     "not_run": "Not run yet",
     "unknown": "Unknown",
+    "stale": "Stale",
 }
 
 LEGACY_RUN_PATTERN = re.compile(
@@ -150,27 +152,34 @@ def classify_board_health(
     *,
     job_total: int,
     last_run: BoardRunSnapshot | None,
+    now: datetime | None = None,
+    stale_after_days: int = 7,
 ) -> tuple[str, str]:
     if not board.enabled:
         return "disabled", HEALTH_LABELS["disabled"]
     if board.adapter == "stub":
         return "stub", HEALTH_LABELS["stub"]
 
-    if last_run is not None:
-        notes = last_run.notes.strip().lower()
-        if notes.startswith("error:"):
-            return "error", HEALTH_LABELS["error"]
-        if "blocked" in notes or "captcha" in notes or "403" in notes:
-            return "error", HEALTH_LABELS["error"]
-        if last_run.raw_jobs > 0 or job_total > 0:
-            return "healthy", HEALTH_LABELS["healthy"]
-        if last_run.queries_run > 0:
-            return "warning", HEALTH_LABELS["warning"]
+    if last_run is None:
+        return "not_run", HEALTH_LABELS["not_run"]
 
-    if job_total > 0:
+    notes = last_run.notes.strip().lower()
+    if notes.startswith("error:") or any(marker in notes for marker in ("blocked", "captcha", "403")):
+        return "error", HEALTH_LABELS["error"]
+    try:
+        checked_at = datetime.fromisoformat(last_run.run_at.replace("Z", "+00:00"))
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current - checked_at > timedelta(days=stale_after_days):
+            return "stale", HEALTH_LABELS["stale"]
+    except ValueError:
+        return "unknown", HEALTH_LABELS["unknown"]
+    if last_run.raw_jobs > 0:
         return "healthy", HEALTH_LABELS["healthy"]
-
-    return "not_run", HEALTH_LABELS["not_run"]
+    if last_run.queries_run > 0:
+        return "warning", HEALTH_LABELS["warning"]
+    return "unknown", HEALTH_LABELS["unknown"]
 
 
 def build_board_health_frame() -> pd.DataFrame:
@@ -322,6 +331,7 @@ def build_board_health_summary(frame: pd.DataFrame) -> dict[str, int]:
         "healthy_boards": int((enabled["health_status"] == "healthy").sum()),
         "warning_boards": int((enabled["health_status"] == "warning").sum()),
         "error_boards": int((enabled["health_status"] == "error").sum()),
+        "stale_boards": int((enabled["health_status"] == "stale").sum()),
         "not_run_boards": int((enabled["health_status"] == "not_run").sum()),
         "total_board_jobs": int(frame["jobs_total"].sum()),
     }

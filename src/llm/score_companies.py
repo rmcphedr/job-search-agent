@@ -10,7 +10,7 @@ import pandas as pd
 
 from src.database.import_inventory import get_inventory_path
 from src.llm.company_fit import score_company_safe
-from src.llm.llm_client import LLMClientError, OllamaClient, load_llm_config
+from src.llm.llm_client import LLMClientError, build_llm_client, load_llm_config
 from src.llm.score_exports import company_result_to_row, upsert_company_fit_rows
 
 
@@ -44,7 +44,7 @@ def score_companies(
     export_rows: list[dict[str, object]] = []
 
     try:
-        client = OllamaClient(config)
+        client = build_llm_client(config)
     except LLMClientError as exc:
         summary.errors += 1
         summary.error_messages.append(str(exc))

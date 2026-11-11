@@ -26,6 +26,7 @@ BROWSE_COLUMNS = (
     "location",
     "tracking_status",
     "source_board",
+    "source_channel",
     "keyword_score",
     "fit_score",
     "date_found",
@@ -92,6 +93,7 @@ def render_jobs_view() -> None:
             "location": st.column_config.TextColumn("Location", width="small"),
             "tracking_status": st.column_config.TextColumn("Tracking", width="small"),
             "source_board": st.column_config.TextColumn("Source", width="small"),
+            "source_channel": st.column_config.TextColumn("Found via", width="small"),
             "keyword_score": st.column_config.NumberColumn("Keyword", format="%.2f"),
             "fit_score": st.column_config.NumberColumn("Fit", format="%.1f"),
             "date_found": st.column_config.TextColumn("Found", width="small"),
@@ -176,6 +178,7 @@ def _render_single_job_detail(job_id: int) -> None:
         st.markdown(f"**Company:** {job.get('company_name', '—')}")
         st.markdown(f"**Location:** {job.get('location') or '—'}")
         st.markdown(f"**Source board:** {job.get('source_board') or '—'}")
+        st.markdown(f"**Found via:** {job.get('source_channel') or '—'}")
     with col2:
         fit_score = job.get("fit_score")
         fit_text = f"{float(fit_score):.1f}" if pd.notna(fit_score) else "Pending evaluation"

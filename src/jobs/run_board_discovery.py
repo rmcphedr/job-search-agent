@@ -25,7 +25,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated search queries (default: config/job_keywords.yaml).",
     )
     parser.add_argument("--phase", type=int, default=None, help="Max implementation phase to include.")
-    parser.add_argument("--dry-run", action="store_true", help="Search and filter without writing to SQLite.")
+    parser.add_argument("--dry-run", action="store_true", help="Search and filter without writing jobs or run logs to SQLite.")
     parser.add_argument(
         "--no-ats-enrich",
         action="store_true",

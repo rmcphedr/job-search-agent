@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from bs4 import BeautifulSoup, Tag
@@ -74,8 +73,10 @@ class WorkopolisAdapter:
             if not href or href in seen or not title:
                 continue
             seen.add(href)
-            card = link.find_parent(["article", "li"]) or link.parent
+            card = link.find_parent(attrs={"data-testid": "searchSerpJob"}) or link.find_parent(["article", "li"]) or link.parent
             company, location = self._company_and_location(card)
+            if company == "Unknown employer":
+                continue
             candidate = build_candidate(
                 source=source,
                 company_name=company,
@@ -93,18 +94,14 @@ class WorkopolisAdapter:
         if card is None:
             return "Unknown employer", None
         company_el = card.select_one(
-            "[data-testid='company-name'], [class*='company'], [class*='employer']"
+            "[data-testid='companyName'], [data-testid='company-name'], "
+            "[data-testid='employer-name']"
         )
         location_el = card.select_one(
-            "[data-testid='job-location'], [class*='location']"
+            "[data-testid='searchSerpJobLocation'], [data-testid='job-location']"
         )
         company = company_el.get_text(" ", strip=True) if company_el else ""
         location = location_el.get_text(" ", strip=True) if location_el else None
-        if not company:
-            text = card.get_text(" ", strip=True)
-            match = re.search(r"\b([^—|]{2,80})\s+—\s+([^|]{2,80})", text)
-            if match:
-                company, location = match.group(1).strip(), match.group(2).strip()
         return company or "Unknown employer", location
 
     def _parse_structured_data(

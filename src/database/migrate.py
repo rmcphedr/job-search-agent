@@ -17,7 +17,7 @@ JOB_POSTINGS_COLUMNS: dict[str, str] = {
     "description_error": "TEXT",
 }
 
-MIGRATION_VERSION = 12
+MIGRATION_VERSION = 13
 
 APPLICATION_STAGE_HISTORY_DDL = """
 CREATE TABLE IF NOT EXISTS application_stage_history (
@@ -485,6 +485,24 @@ def apply_migrations(connection: sqlite3.Connection) -> list[str]:
             )
         connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (12,))
         changes.extend(("application_stage_history", "schema_migrations.version=12"))
+        version = 12
+
+    if version < 13:
+        if _table_exists(connection, "job_postings"):
+            if not _column_exists(connection, "job_postings", "source_channel"):
+                connection.execute("ALTER TABLE job_postings ADD COLUMN source_channel TEXT;")
+                changes.append("job_postings.source_channel")
+            from src.jobs.source_provenance import SOURCE_ALIASES
+
+            for legacy, (canonical, channel) in SOURCE_ALIASES.items():
+                connection.execute(
+                    """UPDATE job_postings
+                       SET source_board=?, source_channel=coalesce(source_channel, ?)
+                       WHERE lower(trim(source_board))=?""",
+                    (canonical, channel, legacy),
+                )
+        connection.execute("INSERT INTO schema_migrations (version) VALUES (?);", (13,))
+        changes.append("schema_migrations.version=13")
 
     return changes
 

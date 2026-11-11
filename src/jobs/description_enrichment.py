@@ -73,6 +73,13 @@ def _title_matches(expected: str, candidate: str) -> bool:
     return left == right or SequenceMatcher(None, left, right).ratio() >= 0.88
 
 
+def _visible_page_text(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    for element in soup(["script", "style", "noscript"]):
+        element.decompose()
+    return soup.get_text(" ", strip=True).casefold()
+
+
 def _browser_description(html: str, url: str) -> tuple[str | None, str | None]:
     """Extract a job description from a rendered LinkedIn or Eluta detail page."""
     soup = BeautifulSoup(html, "html.parser")
@@ -122,7 +129,7 @@ def _enrich_from_browser(url: str, browser: Any) -> DescriptionEnrichmentResult:
             source_url=source_url,
             error=f"Browser page was blocked: {fetched.blocked_reason}",
         )
-    lowered = fetched.html.lower()
+    lowered = _visible_page_text(fetched.html)
     if any(marker in lowered for marker in EXPIRED_MARKERS):
         return DescriptionEnrichmentResult(
             status="expired",
@@ -189,7 +196,7 @@ def enrich_description(
                 status="expired", source="original_posting", source_url=normalized_url,
                 error=f"Posting returned HTTP {status_code}",
             )
-        lower_html = html.lower() if html else ""
+        lower_html = _visible_page_text(html) if html else ""
         if status_code == 200 and any(marker in lower_html for marker in EXPIRED_MARKERS):
             return DescriptionEnrichmentResult(
                 status="expired", source="original_posting", source_url=normalized_url,

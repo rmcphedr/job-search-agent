@@ -90,7 +90,7 @@ or confidence-below-threshold jobs with medium reasoning.
 
 ```bash
 python3 -m src.validators.merge --file data/staging/job_evaluations_<run_id>.json
-python -m src.llm.score_jobs --limit 10
+python -m src.llm.score_jobs --since-days 2
 python -m src.llm.score_jobs --company "Valence Labs"
 ```
 
@@ -131,6 +131,13 @@ python3 -m src.orchestration.evaluation_cli submit \
 Do not use Ollama or an OpenAI API key for the scheduled daily batch. The Codex
 scheduled task performs the judgment and Python validates and writes canonical
 state.
+
+Expired evaluation claims stay durable for inspection. To put only expired
+claims back in the queue after reviewing a failed run, use:
+
+```bash
+python3 -m src.orchestration.evaluation_cli release-stale --confirm
+```
 
 Export: `outputs/job_fit_scores.csv` (→ `data/job_evaluations.csv`).
 

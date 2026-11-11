@@ -66,6 +66,30 @@ class JobFitResult(BaseModel):
     concerns: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=10)
 
+    @field_validator(
+        "role_summary",
+        "job_requirements",
+        "preferred_qualifications",
+        "qualification_assessment",
+        "skills_match",
+        "skill_gaps",
+        "recommended_actions",
+        "concerns",
+        mode="before",
+    )
+    @classmethod
+    def empty_list_if_null(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        return value
+
+    @field_validator("why_fit", "job_title", "company_name", mode="before")
+    @classmethod
+    def empty_text_if_null(cls, value: Any) -> Any:
+        if value is None:
+            return ""
+        return value
+
     @field_validator("fit_score", "confidence", mode="before")
     @classmethod
     def validate_scores(cls, value: Any) -> float:

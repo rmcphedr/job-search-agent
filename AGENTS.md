@@ -100,6 +100,15 @@ python -m src.jobs.run_board_discovery --boards jobbank,indeed_ca,biospace --dry
 ```
 
 Jobs are saved with `source_board` set and `fit_score` NULL until agent evaluation (Step 4).
+`source_channel` records how the lead was discovered separately from its original
+provider. For bounded unattended discovery, use
+`python -m src.jobs.run_scheduled_discovery` (enabled phase 1–2 boards and known
+employer ATS sources). Add `--include-careers --career-limit 25` for a bounded
+company-career pass. The command outputs current-run, description-verified job
+IDs for agent evaluation; it does not start a model run. Add `--all-boards` for
+the Monday full scan of every enabled board, including phase 3. Disabled
+source stubs are reported as skipped. The former daily automation is replaced
+by this weekly scan; evaluation is not part of its scheduled run.
 
 ### Step 4 — Job fit evaluation
 
@@ -109,11 +118,13 @@ Agent scores active jobs against the user profile.
 
 **Output:** JSON in `data/staging/job_evaluations_<run_id>.json` matching `JobFitResult` schema.
 
-**Python merge:**
+**Python batch scoring** writes the same `JobFitResult` fields onto the job. It uses the model in `config/llm.yaml` (OpenRouter by default) and the prompt in `prompts/job_fit.md`. The key belongs in the gitignored `.env` as `OPENROUTER_API_KEY`.
 
 ```bash
-python -m src.llm.score_jobs --limit 10
+python -m src.llm.score_jobs --since-days 2
 ```
+
+This scores active jobs from that window that already have a description of at least 200 characters. A hosted run must also accept `--limit` or `--company` instead of `--since-days`. Set `provider: ollama` in `config/llm.yaml` to use the local model instead.
 
 Primary agent queue workflow:
 
@@ -124,7 +135,7 @@ python3 -m src.orchestration.evaluation_cli claim --worker-id codex
 ```
 
 Historical jobs are never enrolled by migration or startup, and enrollment never
-starts a model run. `src.llm.score_jobs` is a legacy/manual Ollama fallback.
+starts a model run. The batch command above is the routine scorer. The queue is the explicit agent review path.
 
 Reports: `reports/job_fit/<job_slug>_<timestamp>.md`
 

@@ -35,15 +35,31 @@ def record_application_submission(
             "SELECT * FROM application_sessions WHERE job_id = ?;", (job_id,)
         ).fetchone()
         if session_row is None:
-            raise ValueError("Inspect or create an application workspace before recording submission.")
-        session = dict(session_row)
-        fields = [dict(row) for row in connection.execute(
-            "SELECT * FROM application_fields WHERE job_id = ? ORDER BY section, position, field_id;",
-            (job_id,),
-        ).fetchall()]
-        facts = [dict(row) for row in connection.execute(
-            "SELECT * FROM application_facts ORDER BY label;"
-        ).fetchall()]
+            if method != "user_confirmed_external":
+                raise ValueError(
+                    "Inspect or create an application workspace before recording submission."
+                )
+            job_row = connection.execute(
+                "SELECT url, source_board FROM job_postings WHERE job_id = ?;",
+                (job_id,),
+            ).fetchone()
+            if job_row is None:
+                raise ValueError(f"Job {job_id} does not exist.")
+            session = {
+                "provider": job_row["source_board"],
+                "application_url": job_row["url"],
+            }
+            fields: list[dict[str, Any]] = []
+            facts: list[dict[str, Any]] = []
+        else:
+            session = dict(session_row)
+            fields = [dict(row) for row in connection.execute(
+                "SELECT * FROM application_fields WHERE job_id = ? ORDER BY section, position, field_id;",
+                (job_id,),
+            ).fetchall()]
+            facts = [dict(row) for row in connection.execute(
+                "SELECT * FROM application_facts ORDER BY label;"
+            ).fetchall()]
         submitted_at = _now()
         snapshot = {
             "contact_details": [row for row in fields if row["section"] == "contact_details"],
@@ -67,11 +83,12 @@ def record_application_submission(
             VALUES (?, 'applied', ?);""",
             (job_id, submitted_at),
         )
-        connection.execute(
-            """UPDATE application_sessions SET status = 'submitted', current_page = 'success',
-            updated_at = ? WHERE job_id = ?;""",
-            (submitted_at, job_id),
-        )
+        if session_row is not None:
+            connection.execute(
+                """UPDATE application_sessions SET status = 'submitted', current_page = 'success',
+                updated_at = ? WHERE job_id = ?;""",
+                (submitted_at, job_id),
+            )
         connection.execute(
             """INSERT INTO application_audit_events
             (job_id, provider, event_type, outcome, details_json)

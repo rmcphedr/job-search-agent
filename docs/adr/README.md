@@ -66,6 +66,9 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-018](ADR-018-job-description-enrichment.md) | Shared job-description enrichment and expiration | Accepted |
 | [ADR-019](ADR-019-human-reviewed-application-agent.md) | Human-reviewed application agent | Accepted |
 | [ADR-020](ADR-020-durable-agent-job-evaluation-queue.md) | Durable agent job evaluation queue | Accepted |
+| [ADR-021](ADR-021-staged-company-priority.md) | Staged company-priority override | Accepted |
+| [ADR-022](ADR-022-scheduled-job-discovery-and-provenance.md) | Bounded discovery and source provenance | Accepted |
+| [ADR-023](ADR-023-openrouter-batch-fit-scoring.md) | OpenRouter batch fit scoring | Accepted |
 
 ## Related documents
 

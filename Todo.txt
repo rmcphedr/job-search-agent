@@ -1,0 +1,68 @@
+things to fix or implement:
+
+UI:
+Job description test can be more structured and cleaned
+
+
+
+- update hiring status when a job search is performed 
+
+
+
+
+* the biggest challenge is figuring out the logic of the careers page for each website. Abcellara has postings but you 
+need to click the link for 'view openings'. for BCIT it is 'See Current Openings' and then you have to click through more 
+links for subselecting jobs ('all jobs') and then select the titles to open up their description. 
+
+
+- career page state is being marked as found when there is no careers page. It just returns the company page. This should
+register as not found
+
+- Companies link Abbvie do not have a careers page that is found, even though there is one. 
+to get to the openings you have to click 'Current Job Openings' and then click 'Yes' to go to another page where the listings are
+
+
+TODO:
+
+- download a local model or use gpt api -> local model probably the way to go, then I can play around with agents
+
+- LLM can go to company site and output a summary of what the company does. 
+
+functionality:
+- have a database with all companies, but my personal dashboard only shows the companies I've selected, and my personal rankings and fit for the company.
+Thinking from user flow-through, DB should only have company related info that is static and impersonal, and later, operations
+can be run like a fitting or scoring system to allow a user to select companies to retain from the larger database
+
+
+Hermes Agent Integration:
+
+- I can have an agent that run autonomously to add new companies to my DB, verifies them, adds summary and reports Json field information
+Will need to think of limits and restrictions to put if needed. 
+
+-LLM can be also used for providing summaries of companies, fixing text for descriptions if not formatted appropriately 
+so it would be standardizing info across all companies in the DB 
+
+
+
+Next steps:
+
+- I want to process the rest of the companies in the workflow (discovery and input into database, career page)
+- Build out the new view that differentiates the full Company DB for discovery from my companies which are selected based
+on my interests, filtering out those that are not a good fit. think about how to configure this UI in the app to make it easy
+(ask GPT for help with UI design)
+- apply company and job fitting
+
+Extra:
+
+- UI modifications to make more seemless, professsional looking, thinking forward to Use integration
+- add sources and companies to list 
+- use other strategies like email integration for company discover. Can be give a chron job to an agent to run this 
+
+
+Advanced features:
+
+- Resume automation (uses the user master Resume with full skills, provides inferace to review and input text, then
+allows you to export to PDF)
+- Smart user prompting: the LLM asks the user to clarify info that will help it to better discern user job preferences
+
+

@@ -33,6 +33,8 @@ job_board_domains:
   - lifesciencesbc.ca
   - mila.quebec
   - apply.workable.com
+  - job-boards.greenhouse.io
+  - boards.greenhouse.io
   - neurotechjobs.io
   - neurotechx.com
   - jobs.neurotechx.com
@@ -175,7 +177,9 @@ boards:
     phase: 1
     enabled: true
     base_url: https://bioinformatics.ca
-    search_path: /jobs
+    search_path: /Jobs/
+    fetch_once: true
+    notes: "Current Bioinformatics.ca Jobs page lists recent Hub postings."
 
   - source_id: life_sciences_bc
     name: Life Sciences BC Job Board

@@ -1,7 +1,7 @@
 <!-- GENERATED FILE — DO NOT EDIT MANUALLY.
 Source: resume-generation-pipeline/personal/master-profile.md
-Source SHA-256: d95df93fc316b7c48762fbae087625ab4db081c84100204e27b8c9ded5ad515f
-Synchronized at: 2026-08-11T15:00:55+00:00
+Source SHA-256: 5cfdd3d9921b5f94eb72911e62a0d68815aa675cd2ba0f3b784f36c915857c8b
+Synchronized at: 2026-09-28T17:03:21+00:00
 Regenerate with: python3 -m src.profile.master_profile
 -->
 
@@ -78,6 +78,7 @@ Distinctive strengths:
 Core scope:
 
 - Develop reproducible Python pipelines for large-scale multimodal analysis integrating resting-state fMRI, single-cell transcriptomics, spatial transcriptomics, and behavioral datasets.
+- Fine-tuned transformer-based language models using Hugging Face Transformers as part of postdoctoral research workflows.
 - Apply multivariate methods, including canonical correlation analysis (CCA) and partial least squares (PLS), to study relationships between brain connectivity and subjective psychedelic experiences.
 - Evaluate alternative neuroimaging preprocessing and statistical strategies for an international psychedelic-neuroimaging mega-analysis.
 - Analyze functional connectivity across international datasets containing hundreds of participants from multiple clinical studies.
@@ -89,12 +90,12 @@ Core scope:
 
 Confirmed tools and methods:
 
-- Python, scikit-learn, PyTorch, Nilearn, MNE-Python, Nibabel, Pandas, NumPy, SciPy, Statsmodels, Git, Docker, and HPC environments.
+- Python, scikit-learn, PyTorch, Hugging Face Transformers, Nilearn, MNE-Python, Nibabel, Pandas, NumPy, SciPy, Statsmodels, Git, Docker, and HPC environments.
 - fMRI preprocessing and denoising comparisons, functional connectivity, multimodal integration, transcriptomics, CCA, PLS, statistical modeling, and reproducible research.
 
 Confirmed impact and scale:
 
-- Created the data-processing pipelines and generated the results figures for work associated with a *Nature Medicine* publication, including reanalyzing the data after identifying a data-integrity issue.
+- Created the data-processing pipelines and generated the results figures for research published in *Nature Medicine*, including reanalyzing the data after identifying a data-integrity issue.
 - Coordinated data integration across 3 continents, 13 studies, 300+ participants, and 500+ scans.
 
 Strong claims found repeatedly in the current master resume, but requiring final publication/method confirmation before external use:
@@ -197,8 +198,9 @@ Claims requiring confirmation before external use:
 **Recognition:** 2nd Place, MedTech Hackathon Challenge
 
 - Developed a predictive clinical decision-support system aimed at improving emergency-department patient flow.
+- Worked hands-on with real structured EHR/EMR healthcare data included in the project.
 - Applied predictive modeling to inpatient bed allocation and hospital resource bottlenecks.
-- Uses Python, predictive modeling, healthcare analytics, clinical decision support, and operations optimization.
+- Uses Python, structured EHR/EMR data, predictive modeling, healthcare analytics, clinical decision support, and operations optimization.
 
 ### Wearable Arrhythmia Detection System
 
@@ -259,7 +261,7 @@ Claims requiring confirmation before external use:
 - EEG and ECG signal processing
 - Single-cell and spatial transcriptomics
 - Multimodal and cross-species data integration
-- Nilearn, MNE-Python, and Nibabel
+- Nilearn, MNE-Python, Nibabel, FreeSurfer, and fMRIPrep
 - Molecular cloning, mRNA synthesis and purification, Xenopus microinjection
 - Immunohistochemistry, fluorescence microscopy, two-photon imaging
 - Patch-clamp electrophysiology, CRISPR, and behavioral experimentation

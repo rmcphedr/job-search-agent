@@ -43,12 +43,12 @@ Return JSON ONLY with this exact structure:
   "job_requirements": ["<material required qualification from the posting>"],
   "preferred_qualifications": ["<material preferred/good-to-have qualification>"],
   "qualification_assessment": [
-    {
+    {{
       "requirement": "<required or preferred qualification, stated once>",
       "status": "<match or gap>",
       "evidence": "<concise profile evidence or concise missing-evidence explanation>",
       "preferred": <true only for preferred/good-to-have items>
-    }
+    }}
   ],
   "skills_match": ["<string>"],
   "skill_gaps": ["<string>"],

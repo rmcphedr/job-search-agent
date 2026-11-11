@@ -69,8 +69,7 @@ enrollment never starts model execution by itself.
 
 ### Follow-ups
 
-- Evaluate a cheaper fallback model only after measured quality and efficiency
-  data exists.
+- Routine batch fit scoring through the configured chat model is [ADR-023](ADR-023-openrouter-batch-fit-scoring.md). The queue remains the path for an explicit agent review.
 - Revisit the default batch size and confidence threshold after initial runs.
 
 ## Daily scheduled evaluation extension

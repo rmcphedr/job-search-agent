@@ -70,8 +70,9 @@ def test_triage_jobs_disabled_passes_all() -> None:
     assert count == 2
 
 
+@patch("src.llm.job_triage.load_llm_config", return_value={"provider": "ollama"})
 @patch("src.llm.job_triage.triage_job_safe")
-def test_triage_jobs_filters_low_scores(mock_triage) -> None:
+def test_triage_jobs_filters_low_scores(mock_triage, _config) -> None:
     mock_triage.side_effect = [
         (
             JobTriageResult(
@@ -104,8 +105,9 @@ def test_triage_jobs_filters_low_scores(mock_triage) -> None:
     assert triaged[0].triage_score == 8.0
 
 
+@patch("src.llm.job_triage.load_llm_config", return_value={"provider": "ollama"})
 @patch("src.llm.job_triage.triage_job_safe")
-def test_triage_jobs_fallback_on_llm_error(mock_triage) -> None:
+def test_triage_jobs_fallback_on_llm_error(mock_triage, _config) -> None:
     mock_triage.return_value = (None, "connection refused")
     jobs = [_sample_job()]
     triaged, count = triage_jobs(

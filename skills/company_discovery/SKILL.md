@@ -43,9 +43,13 @@ Each `<slug>.json` is a **single** `CompanyCandidate` object:
   "source_url": "https://example.com/listing",
   "source_category": "AI healthcare startup",
   "confidence": 0.7,
+  "priority": "High",
   "notes": "Series A, ML imaging product"
 }
 ```
+
+Use `priority` only for an explicit user or workflow priority request; valid
+values are `High`, `Medium`, and `Low`.
 
 Initialize a run:
 

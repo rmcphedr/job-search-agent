@@ -123,6 +123,14 @@ def format_job_description(
         raw_description=raw_description[:12000],
     )
 
+    provider = str(config.get("provider") or "ollama")
+    if client is None and provider != "ollama":
+        return _fallback_formatted_description(
+            location=location,
+            location_type=location_type,
+            raw_description=raw_description,
+        )
+
     try:
         llm_client = client or OllamaClient(config)
         payload = llm_client.generate_json(prompt)

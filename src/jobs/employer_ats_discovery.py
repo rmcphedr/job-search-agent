@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
@@ -67,17 +68,29 @@ def _company_id_for_name(connection, company_name: str) -> int | None:
     return int(row["company_id"]) if row else None
 
 
-def discover_ats_sources(*, persist: bool = True, fetch_embedded: bool = True) -> int:
+def _job_url_board_matches_company(company_name: str, board_url: str) -> bool:
+    """Avoid assigning every posting on a shared ATS board to one listed employer."""
+    words = [word for word in re.findall(r"[a-z0-9]+", company_name.casefold())
+             if len(word) >= 3 and word not in {"the", "inc", "ltd", "llc"}]
+    board_key = re.sub(r"[^a-z0-9]", "", board_url.casefold())
+    return bool(words and words[0] in board_key)
+
+
+def discover_ats_sources(
+    *, persist: bool = True, fetch_embedded: bool = True,
+    max_embedded_fetches: int | None = None,
+) -> int:
     """Register ATS sources found in inventory career pages and existing job URLs."""
     connection = get_connection()
     discovered: set[tuple[int, str, str]] = set()
+    embedded_fetches = 0
     try:
         apply_migrations(connection)
 
         rows = connection.execute(
             """
-            SELECT DISTINCT j.company_id, j.url
-            FROM job_postings j
+            SELECT DISTINCT j.company_id, j.url, c.company_name
+            FROM job_postings j JOIN companies c USING(company_id)
             WHERE j.url IS NOT NULL AND trim(j.url) != '';
             """
         ).fetchall()
@@ -85,6 +98,8 @@ def discover_ats_sources(*, persist: bool = True, fetch_embedded: bool = True) -
             identified = identify_ats_source(str(row["url"]))
             if identified:
                 provider, board_url, token = identified
+                if not _job_url_board_matches_company(str(row["company_name"]), board_url):
+                    continue
                 key = (int(row["company_id"]), provider, board_url)
                 discovered.add(key)
                 if persist:
@@ -109,7 +124,10 @@ def discover_ats_sources(*, persist: bool = True, fetch_embedded: bool = True) -
                 if company_id is None:
                     continue
                 identified = identify_ats_source(career_page)
-                if identified is None and fetch_embedded:
+                if identified is None and fetch_embedded and (
+                    max_embedded_fetches is None or embedded_fetches < max_embedded_fetches
+                ):
+                    embedded_fetches += 1
                     status, final_url, html = fetch_page(career_page)
                     if status in {200, 301, 302} and html:
                         identified = identify_ats_source(final_url, html)
@@ -182,13 +200,17 @@ def run_employer_ats_discovery(
     sync_sources: bool = True,
     dry_run: bool = False,
     fetch_embedded: bool = True,
+    run_id: str | None = None,
+    max_embedded_fetches: int | None = None,
+    max_sources: int | None = None,
 ) -> ATSDiscoverySummary:
     config = load_discovery_config()
-    summary = ATSDiscoverySummary(run_id=_new_run_id(), dry_run=dry_run)
+    summary = ATSDiscoverySummary(run_id=run_id or _new_run_id(), dry_run=dry_run)
     if sync_sources:
         summary.sources_registered = discover_ats_sources(
             persist=not dry_run,
             fetch_embedded=fetch_embedded,
+            max_embedded_fetches=max_embedded_fetches,
         )
         if not dry_run:
             connection = get_connection()
@@ -203,6 +225,10 @@ def run_employer_ats_discovery(
         sources = list_ats_sources(connection, provider=provider, company=company)
     finally:
         connection.close()
+
+    if max_sources is not None and len(sources) > max_sources:
+        offset = (datetime.now(timezone.utc).date().toordinal() * max_sources) % len(sources)
+        sources = (sources[offset:] + sources[:offset])[:max_sources]
 
     for source in sources:
         stats = ATSSourceRunStats(
@@ -257,5 +283,6 @@ def run_employer_ats_discovery(
                 connection.close()
         summary.source_stats.append(stats)
 
-    _log_run(summary)
+    if not dry_run:
+        _log_run(summary)
     return summary

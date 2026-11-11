@@ -82,6 +82,8 @@ class IndeedCaAdapter:
             url = absolute_url(base, link_el.get("href") if link_el else None)
             if url:
                 url = re.sub(r"&from=.*", "", url)
+            else:
+                continue
 
             if not company:
                 company = "Unknown employer"

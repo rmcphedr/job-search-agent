@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     fit_reason TEXT,
     fit_details TEXT,
     source_board TEXT,
+    source_channel TEXT,
     discovery_run_id TEXT,
     keyword_score REAL,
     matched_keywords TEXT,

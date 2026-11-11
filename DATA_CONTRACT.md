@@ -29,7 +29,7 @@ Defines file ownership, schemas, and merge rules. **Agents stage; Python canonic
 | `config/job_keywords.yaml` | Role/domain keyword filters | Used by job discovery CLI |
 | `config/job_board_sources.yaml` | Job board adapter catalog | Board discovery CLI |
 | `config/job_discovery.yaml` | Budgets, triage settings | Job pipeline |
-| `config/llm.yaml` | Ollama model settings | LLM scorer CLI |
+| `config/llm.yaml` | Chat model settings for batch fit scoring | LLM scorer CLI |
 
 ### Agent staging (agents write; Python validates)
 
@@ -132,11 +132,14 @@ Pydantic models live in `src/schemas/` (re-exported from existing modules). See 
   "source_url": "https://lifesciencesbc.ca/member/example",
   "source_category": "Life Sciences BC Member",
   "confidence": 0.85,
+  "priority": "High",
   "notes": "optional"
 }
 ```
 
 Validated by `src.discovery.models.CompanyCandidate`. Merge: `src.discovery.update_inventory`.
+`priority` is optional and must be `High`, `Medium`, or `Low`; when omitted,
+Python retains the confidence-based default.
 
 ### CompanyFitResult (evaluation staging)
 
@@ -168,13 +171,18 @@ Validated by `src.llm.schemas.CompanyFitResult`.
   "url": "https://example.com/jobs/ml-scientist",
   "description": "optional full text",
   "provider": "greenhouse",
+  "source_channel": "employer_ats",
   "source_career_page": "https://example.com/careers",
   "keyword_score": 0.4,
   "matched_keywords": ["machine learning", "python"]
 }
 ```
 
-Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jobs`.
+Validated by `src.jobs.job_models.JobCandidate`. Merge with
+`python3 -m src.validators.merge --file data/staging/job_candidates_<run_id>.json`;
+Python persists through `src.jobs.save_jobs`. `provider` identifies the original
+posting source; optional `source_channel` identifies how it was found (for
+example `gmail_alert`, `employer_ats`, or `linkedin_feed`).
 
 ### SQLite `job_postings` row (canonical)
 
@@ -188,14 +196,15 @@ Validated by `src.jobs.job_models.JobCandidate`. Persisted via `src.jobs.save_jo
 | `description` | string | Optional |
 | `date_found` | iso datetime | Default now |
 | `active` | bool/int | Default 1 |
-| `fit_score` | float | **Agent evaluation only** (NULL until evaluated) |
-| `fit_reason` | string | Agent evaluation summary |
+| `fit_score` | float | Batch scorer or agent evaluation (NULL until evaluated) |
+| `fit_reason` | string | Short fit summary |
 | `fit_details` | JSON string | Full structured `JobFitResult` for dashboard display |
 | `source_board` | string | e.g. `jobbank`, `indeed_ca` |
+| `source_channel` | string | Discovery route, separate from the original posting source |
 | `discovery_run_id` | string | Board discovery run id |
 | `keyword_score` | float 0–1 | Prescreen from `filter_jobs` |
 | `matched_keywords` | JSON string | Keyword list |
-| `evaluated_at` | iso datetime | Set when agent fit merge completes |
+| `evaluated_at` | iso datetime | Set when a batch or agent fit result is stored |
 | `description_status` | string | `enriched`, `not_found`, `error`, or `expired` |
 | `description_source` | string | Provenance category, never generated content |
 | `description_source_url` | string | Authoritative page used for enrichment |

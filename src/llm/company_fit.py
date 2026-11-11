@@ -7,7 +7,7 @@ import logging
 from pydantic import ValidationError
 
 from src.llm.cache import company_cache_key, is_cache_enabled, load_cached_result, save_cached_result
-from src.llm.llm_client import LLMClientError, OllamaClient, load_llm_config
+from src.llm.llm_client import LLMClient, LLMClientError, build_llm_client, load_llm_config
 from src.llm.prompts import build_company_fit_prompt
 from src.llm.schemas import CompanyFitResult
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 def score_company(
     company_record: dict[str, object],
     *,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
     force_refresh: bool = False,
 ) -> CompanyFitResult:
     """Score a single company for candidate fit."""
@@ -33,7 +33,7 @@ def score_company(
             )
             return CompanyFitResult.model_validate(cached)
 
-    llm_client = client or OllamaClient(config)
+    llm_client = client or build_llm_client(config)
     prompt = build_company_fit_prompt(company_record)
 
     try:
@@ -59,7 +59,7 @@ def score_company(
 def score_company_safe(
     company_record: dict[str, object],
     *,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
     force_refresh: bool = False,
 ) -> tuple[CompanyFitResult | None, str | None]:
     """Score a company and return (result, error_message)."""

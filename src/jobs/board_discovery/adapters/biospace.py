@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 from src.jobs.board_discovery.config import BoardSource
-from src.jobs.board_discovery.http import BoardHttpClient
+from src.jobs.board_discovery.http import BoardHttpClient, is_persistent_board_error
 from src.jobs.board_discovery.parsers import absolute_url, build_candidate
 from src.jobs.job_models import JobCandidate
 
@@ -39,7 +39,9 @@ class BiospaceAdapter:
             search_url = f"{base}{search_path}"
             try:
                 html, final_url = client.get_with_url(search_url, params=params)
-            except Exception:
+            except Exception as exc:
+                if is_persistent_board_error(exc):
+                    raise
                 break
             parsed = urlparse(final_url)
             page_base = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else base

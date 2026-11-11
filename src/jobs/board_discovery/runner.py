@@ -117,6 +117,7 @@ def run_board_discovery(
     phase: int | None = None,
     dry_run: bool = False,
     enrich_ats: bool = True,
+    run_id: str | None = None,
 ) -> BoardDiscoverySummary:
     config = load_board_sources_config()
     discovery_config = load_discovery_config()
@@ -138,7 +139,7 @@ def run_board_discovery(
             "Install with: pip install playwright && playwright install chromium"
         )
 
-    run_id = _new_run_id()
+    run_id = run_id or _new_run_id()
     summary = BoardDiscoverySummary(run_id=run_id, dry_run=dry_run)
     client = BoardHttpClient(delay_ms=delay_ms)
     all_candidates: list[JobCandidate] = []
@@ -193,6 +194,8 @@ def run_board_discovery(
         location_score_boost=discovery_config.prescreen.location_score_boost,
     )
     summary.jobs_after_filter = len(filtered)
+    for stats in summary.board_stats:
+        stats.filtered_jobs = sum(candidate.provider == stats.source_id for candidate in filtered)
 
     if enrich_ats and filtered:
         needs_rendered_enrichment = any(
@@ -213,7 +216,6 @@ def run_board_discovery(
 
     if dry_run:
         summary.inserted = 0
-        _log_run(summary)
         return summary
 
     save_result = save_jobs(

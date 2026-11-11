@@ -1,5 +1,15 @@
-provider: ollama
+provider: openrouter
 
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  model: nvidia/nemotron-3.5-lightning:free
+  temperature: 0.1
+  reasoning_effort: low
+  api_key_env: OPENROUTER_API_KEY
+  timeout_seconds: 120
+  app_name: Job Search Agent
+
+# Local fallback. Switch provider to ollama to use it.
 ollama:
   base_url: http://localhost:11434
   model: qwen3:30b
@@ -8,3 +18,6 @@ ollama:
 batch_size: 5
 
 cache_enabled: true
+
+# Descriptions shorter than this are listing stubs, not postings.
+min_description_chars: 200

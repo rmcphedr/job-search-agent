@@ -25,6 +25,11 @@ def _require_browser(browser: PlaywrightBrowserClient | None) -> PlaywrightBrows
     return browser
 
 
+def _raise_if_blocked(reason: str | None, source: BoardSource) -> None:
+    if reason:
+        raise RuntimeError(f"Board blocked: {source.source_id}: {reason}")
+
+
 class PlaywrightIndeedCaAdapter(IndeedCaAdapter):
     def search(
         self,
@@ -50,8 +55,7 @@ class PlaywrightIndeedCaAdapter(IndeedCaAdapter):
             }
             search_url = f"{base}{search_path}"
             result = pw.get_page_html_for_board(search_url, params=params, board=source)
-            if result.blocked_reason:
-                break
+            _raise_if_blocked(result.blocked_reason, source)
             page_candidates = self._parse_listing(
                 result.html,
                 source=source,
@@ -91,8 +95,7 @@ class PlaywrightGlassdoorAdapter(GlassdoorAdapter):
                 "p": str(page),
             }
             result = pw.get_page_html_for_board(search_url, params=params, board=source)
-            if result.blocked_reason:
-                break
+            _raise_if_blocked(result.blocked_reason, source)
             page_candidates = self._parse_listing(
                 result.html, source=source, search_url=result.final_url, base=base
             )
@@ -124,8 +127,7 @@ class PlaywrightGoogleJobsAdapter(GoogleJobsAdapter):
             "hl": source.search_params.get("hl", "en-CA"),
         }
         result = pw.get_page_html_for_board(search_url, params=params, board=source)
-        if result.blocked_reason:
-            return []
+        _raise_if_blocked(result.blocked_reason, source)
         return self._parse_listing(
             result.html, source=source, search_url=result.final_url, base=base
         )
@@ -155,8 +157,7 @@ class PlaywrightElutaAdapter:
             params = {"q": query, "l": resolved_location, "page": str(page)}
             search_url = f"{base}{search_path}"
             result = pw.get_page_html_for_board(search_url, params=params, board=source)
-            if result.blocked_reason:
-                break
+            _raise_if_blocked(result.blocked_reason, source)
             page_candidates = parse_eluta_listing(
                 result.html,
                 source=source,
@@ -189,8 +190,7 @@ class PlaywrightWellfoundAdapter:
         params = {"query": query, "location": source.search_params.get("location", location)}
         search_url = f"{base}{search_path}"
         result = pw.get_page_html_for_board(search_url, params=params, board=source)
-        if result.blocked_reason:
-            return []
+        _raise_if_blocked(result.blocked_reason, source)
         return self._parse_listing(result.html, source=source, search_url=result.final_url, base=base)
 
     def _parse_listing(self, html: str, *, source: BoardSource, search_url: str, base: str) -> list[JobCandidate]:
@@ -236,8 +236,7 @@ class PlaywrightNeurotechAdapter:
         pw = _require_browser(browser)
         base = source.base_url.rstrip("/")
         result = pw.get_page_html_for_board(base, params=None, board=source)
-        if result.blocked_reason:
-            return []
+        _raise_if_blocked(result.blocked_reason, source)
         return self._parse_listing(result.html, source=source, search_url=result.final_url, base=base, query=query)
 
     def _parse_listing(
@@ -302,8 +301,7 @@ class PlaywrightLinkedInAdapter:
             }
             search_url = f"{base}/search"
             result = pw.get_page_html_for_board(search_url, params=params, board=source)
-            if result.blocked_reason:
-                break
+            _raise_if_blocked(result.blocked_reason, source)
             page_candidates = self._parse_listing(result.html, source=source, search_url=result.final_url)
             if not page_candidates:
                 break

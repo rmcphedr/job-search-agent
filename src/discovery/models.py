@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -27,6 +29,7 @@ class CompanyCandidate(BaseModel):
     source_url: str
     source_category: str | None = None
     confidence: float = 0.5
+    priority: Literal["High", "Medium", "Low"] | None = None
     notes: str | None = None
 
     @field_validator("company_name")

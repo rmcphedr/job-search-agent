@@ -1,4 +1,4 @@
-"""Job fit scoring via local Ollama LLM."""
+"""Job fit scoring via the configured chat model."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 from pydantic import ValidationError
 
 from src.llm.cache import is_cache_enabled, job_cache_key, load_cached_result, save_cached_result
-from src.llm.llm_client import LLMClientError, OllamaClient, load_llm_config
+from src.llm.llm_client import LLMClient, LLMClientError, build_llm_client, load_llm_config
 from src.llm.prompts import build_job_fit_prompt, parse_company_notes
 from src.llm.schemas import JobFitResult
 
@@ -18,7 +18,7 @@ def score_job(
     job_record: dict[str, object],
     *,
     company_context: dict[str, str] | None = None,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
     force_refresh: bool = False,
 ) -> JobFitResult:
     """Score a single job posting for candidate fit."""
@@ -35,7 +35,7 @@ def score_job(
             )
             return JobFitResult.model_validate(cached)
 
-    llm_client = client or OllamaClient(config)
+    llm_client = client or build_llm_client(config)
     prompt = build_job_fit_prompt(job_record, company_context=company_context)
 
     try:
@@ -74,7 +74,7 @@ def score_job_safe(
     job_record: dict[str, object],
     *,
     company_context: dict[str, str] | None = None,
-    client: OllamaClient | None = None,
+    client: LLMClient | None = None,
     force_refresh: bool = False,
 ) -> tuple[JobFitResult | None, str | None]:
     """Score a job and return (result, error_message)."""

@@ -61,6 +61,19 @@ def test_marks_gone_posting_expired(monkeypatch, tmp_path: Path) -> None:
     assert result.status == "expired"
 
 
+def test_expiry_text_in_javascript_does_not_expire_live_listing(monkeypatch, tmp_path: Path) -> None:
+    html = "<html><title>Current role</title><script>const error = 'job posting has expired'</script></html>"
+    monkeypatch.setattr(
+        "src.jobs.description_enrichment.fetch_page",
+        lambda url: (200, url, html),
+    )
+    result = enrich_description(
+        {"url": "https://jobs.example.com/123", "company_name": "Acme", "title": "Engineer"},
+        inventory_path=tmp_path / "missing.csv",
+    )
+    assert result.status == "not_found"
+
+
 def test_fetch_failure_is_retryable_error(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         "src.jobs.description_enrichment.fetch_page",

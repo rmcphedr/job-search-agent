@@ -21,10 +21,17 @@ def test_daily_claim_defaults_to_luna_with_bounded_budget() -> None:
             "--worker-id", "codex-scheduled",
         ]
     )
-
     assert (args.model, args.reasoning, args.max_jobs, args.token_limit) == (
         "gpt-5.6-luna", "low", 5, 30_000
     )
+
+
+def test_stale_claim_recovery_is_explicit(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("src.orchestration.evaluation_cli.release_stale_claims", lambda: 2)
+    with pytest.raises(ValueError, match="confirmation"):
+        main(["release-stale"])
+    assert main(["release-stale", "--confirm"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"released": 2}
 
 
 def test_daily_claim_rejects_more_than_five_jobs() -> None:

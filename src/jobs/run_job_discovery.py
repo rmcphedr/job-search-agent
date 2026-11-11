@@ -90,12 +90,15 @@ def run_job_discovery(
     min_keyword_score: float | None = None,
     export_path: Path = DEFAULT_EXPORT,
     discovery_config: DiscoveryConfig | None = None,
+    discovery_run_id: str | None = None,
+    company_offset: int = 0,
 ) -> RunSummary:
     base_config = discovery_config or load_discovery_config()
     inventory_path = get_inventory_path()
     frame = pd.read_csv(inventory_path, dtype=str)
     summary = RunSummary()
     all_filtered_jobs: list[JobCandidate] = []
+    career_pages_seen = 0
 
     for _, row in frame.iterrows():
         company_name = str(row.get("company_name", "")).strip()
@@ -108,6 +111,11 @@ def run_job_discovery(
         career_page_raw = row.get("career_page", "")
         if not _is_valid_career_page(career_page_raw):
             continue
+
+        if career_pages_seen < company_offset:
+            career_pages_seen += 1
+            continue
+        career_pages_seen += 1
 
         if limit is not None and summary.companies_with_career_pages >= limit:
             break
@@ -232,7 +240,11 @@ def run_job_discovery(
     summary.export_path = str(export_path)
 
     if not dry_run and all_filtered_jobs:
-        save_result: SaveJobsResult = save_jobs(all_filtered_jobs, force_refresh=force_refresh)
+        save_result: SaveJobsResult = save_jobs(
+            all_filtered_jobs, force_refresh=force_refresh,
+            pending_evaluation=discovery_run_id is not None,
+            discovery_run_id=discovery_run_id,
+        )
         summary.new_jobs_inserted = save_result.inserted
         summary.duplicates_skipped = save_result.duplicates_skipped
         summary.updated_jobs = save_result.updated

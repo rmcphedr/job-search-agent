@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import pytest
 
 from src.database.company_upsert import (
     BOARD_DISCOVERED_STATUS,
@@ -14,17 +15,65 @@ from src.jobs.board_discovery.adapters.mila import parse_mila_workable_payload
 from src.jobs.board_discovery.adapters.digital_health_canada import parse_digital_health_canada_listing
 from src.jobs.board_discovery.adapters.petridish import parse_petridish_listing
 from src.jobs.board_discovery.adapters.biospace import BiospaceAdapter
+from src.jobs.board_discovery.adapters.bioinformatics_ca import BioinformaticsCaAdapter
 from src.jobs.board_discovery.adapters.can_acn import CanAcnAdapter
 from src.jobs.board_discovery.adapters.healthecareers import HealthecareersAdapter
 from src.jobs.board_discovery.adapters.jobbank import JobBankAdapter
+from src.jobs.board_discovery.adapters.indeed_ca import IndeedCaAdapter
 from src.jobs.board_discovery.adapters.life_sciences_bc import LifeSciencesBcAdapter
 from src.jobs.board_discovery.adapters.neurotechx import NeurotechXAdapter
+from src.jobs.board_discovery.adapters.workopolis import WorkopolisAdapter
 from src.jobs.board_discovery.ats_enrich import enrich_ats_job_descriptions
 from src.jobs.board_discovery.config import BoardSource, boards_need_playwright, load_board_sources_config
+from src.jobs.board_discovery.http import is_persistent_board_error
 from src.jobs.board_discovery.listing_utils import matches_canada_location, matches_query
 from src.jobs.board_discovery.playwright_config import detect_blocked_page, resolve_board_playwright
-from src.jobs.board_discovery.playwright_adapters import PlaywrightLinkedInAdapter
+from src.jobs.board_discovery.playwright_adapters import PlaywrightLinkedInAdapter, _raise_if_blocked
 from src.jobs.job_models import JobCandidate
+
+
+def test_board_rate_limit_and_missing_endpoint_stop_repeated_queries() -> None:
+    assert is_persistent_board_error(RuntimeError("429 Client Error: Too Many Requests"))
+    assert is_persistent_board_error(RuntimeError("404 Client Error: Not Found"))
+
+
+def test_challenge_page_is_reported_as_persistent_source_failure() -> None:
+    source = BoardSource(source_id="indeed_ca", name="Indeed Canada", adapter="indeed_ca", base_url="https://ca.indeed.com")
+    with pytest.raises(RuntimeError, match="Board blocked: indeed_ca: indeed_captcha") as error:
+        _raise_if_blocked("indeed_captcha", source)
+    assert is_persistent_board_error(error.value)
+
+
+def test_workopolis_uses_exact_employer_and_location_fields() -> None:
+    source = BoardSource(source_id="workopolis", name="Workopolis", adapter="workopolis", base_url="https://www.workopolis.com")
+    html = '''<li><div data-testid="searchSerpJob"><h2><a href="/jobsearch/viewjob/abc">AI Engineer</a></h2><span data-testid="companyName">Soneil Spark</span><span data-testid="searchSerpJobLocation">Brampton, ON</span><div class="company-summary">AI Engineer Soneil Spark</div><div class="location-extra">$85,000 a year</div></div></li>'''
+    jobs = WorkopolisAdapter()._parse_listing(html, source=source, search_url="https://www.workopolis.com/search", base="https://www.workopolis.com")
+    assert len(jobs) == 1
+    assert jobs[0].company_name == "Soneil Spark"
+    assert jobs[0].location == "Brampton, ON"
+
+
+def test_indeed_omits_cards_without_application_url() -> None:
+    source = BoardSource(source_id="indeed_ca", name="Indeed Canada", adapter="indeed_ca", base_url="https://ca.indeed.com")
+    html = '''<div class="job_seen_beacon"><h2 class="jobTitle"><span title="AI Engineer">AI Engineer</span></h2><span class="companyName">Soneil Spark</span></div>'''
+    jobs = IndeedCaAdapter()._parse_listing(html, source=source, search_url="https://ca.indeed.com/jobs", base="https://ca.indeed.com")
+    assert jobs == []
+
+
+def test_biospace_propagates_rate_limit_to_board_runner() -> None:
+    class RateLimitedClient:
+        def get_with_url(self, url, *, params):
+            raise RuntimeError("429 Client Error: Too Many Requests")
+
+    source = BoardSource(
+        source_id="biospace", name="BioSpace Jobs", adapter="biospace",
+        base_url="https://jobs.biospace.com",
+    )
+    with pytest.raises(RuntimeError, match="429"):
+        BiospaceAdapter().search(
+            "machine learning", location="Canada", source=source,
+            client=RateLimitedClient(), max_pages=3,
+        )
 
 
 JOB_BANK_FIXTURE = """
@@ -47,6 +96,16 @@ BIOSPACE_FIXTURE = """
     <li class="lister__meta-item lister__meta-item--recruiter">Amgen</li>
   </ul>
 </li>
+"""
+
+BIOINFORMATICS_FIXTURE = """
+<article class="biohub-psc-card biohub-psc-card--job">
+  <h3 class="biohub-psc-card__title"><a href="https://hub.bioinformatics.ca/en/jobs/abc">
+    Computational Biologist</a></h3>
+  <p class="biohub-psc-card__attr"><span>Vancouver, Canada</span></p>
+  <p class="biohub-psc-card__attr"><span>Genome Sciences Centre</span></p>
+</article>
+<li><a href="https://bioinformatics.ca/training/cbw">Canadian Bioinformatics Workshops</a></li>
 """
 
 NEUROTECHX_FIXTURE = """
@@ -201,6 +260,21 @@ def test_biospace_adapter_parses_fixture() -> None:
     assert results[0].title == "Sr Machine Learning Engineer"
     assert results[0].company_name == "Amgen"
     assert results[0].location == "Toronto, Ontario"
+
+
+def test_bioinformatics_adapter_only_parses_job_cards() -> None:
+    source = BoardSource(
+        source_id="bioinformatics_ca", name="Bioinformatics.ca Jobs",
+        adapter="bioinformatics_ca", base_url="https://bioinformatics.ca",
+    )
+    results = BioinformaticsCaAdapter()._parse_listing(
+        BIOINFORMATICS_FIXTURE, source=source,
+        search_url="https://bioinformatics.ca/Jobs/",
+    )
+    assert len(results) == 1
+    assert (results[0].company_name, results[0].location) == (
+        "Genome Sciences Centre", "Vancouver, Canada"
+    )
 
 
 def test_neurotechx_adapter_parses_fixture() -> None:
@@ -470,3 +544,54 @@ def test_upsert_company_from_job_creates_placeholder(tmp_path) -> None:
     assert row["hiring_status"] == BOARD_DISCOVERED_STATUS
     assert row["location"] == "Montreal, QC"
     assert row["website"] == placeholder_website("New Board Co")
+
+
+def test_upsert_company_from_greenhouse_job_keeps_employers_distinct(tmp_path) -> None:
+    db_path = tmp_path / "test.db"
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    connection.executescript(
+        """
+        CREATE TABLE companies (
+            company_id INTEGER PRIMARY KEY,
+            company_name TEXT NOT NULL,
+            website TEXT NOT NULL UNIQUE,
+            industry TEXT,
+            location TEXT,
+            size TEXT,
+            hiring_status TEXT,
+            priority TEXT,
+            last_checked TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+
+    beacon_id = upsert_company_from_job(
+        connection,
+        company_name="Beacon Biosignals",
+        job_url="https://job-boards.greenhouse.io/beaconbiosignals/jobs/4354125009",
+    )
+    toboggan_id = upsert_company_from_job(
+        connection,
+        company_name="Toboggan Labs",
+        job_url="https://job-boards.greenhouse.io/tobogganlabs/jobs/7733829003",
+    )
+
+    rows = connection.execute(
+        "SELECT company_name, website FROM companies ORDER BY company_id;"
+    ).fetchall()
+    connection.close()
+
+    assert beacon_id != toboggan_id
+    assert [dict(row) for row in rows] == [
+        {
+            "company_name": "Beacon Biosignals",
+            "website": "https://unresolved.local/beacon-biosignals",
+        },
+        {
+            "company_name": "Toboggan Labs",
+            "website": "https://unresolved.local/toboggan-labs",
+        },
+    ]

@@ -38,6 +38,9 @@ Python will:
 ## Agent staging (optional)
 
 Agents may still write `JobCandidate` JSON to `data/staging/job_candidates_<run_id>.json` for manual curation before merge.
+Set `provider` to the original board or ATS identifier and `source_channel`
+to the discovery route when known. Use stable direct job URLs and keep
+authoritative description evidence under `data/source_evidence/<run_id>/`.
 
 ## Evaluation (separate step)
 
@@ -51,11 +54,23 @@ See [DATA_CONTRACT.md](../../DATA_CONTRACT.md) → JobCandidate.
 
 ```bash
 python -m src.jobs.run_board_discovery   # direct to SQLite
-# or
-python -m src.jobs.save_jobs             # after staging validation
+# or merge validated agent staging
+python3 -m src.validators.merge --file data/staging/job_candidates_<run_id>.json
 ```
 
 Do not bypass deduplication or edit `job_postings` directly.
+
+### Bounded scheduled discovery
+
+`python3 -m src.jobs.run_scheduled_discovery` checks enabled phase 1–2 boards
+and registered employer ATS sources, then prints discovery run IDs and only
+current-run jobs with verified descriptions that are ready for agent evaluation.
+`--include-careers --career-limit 25` adds a rotating company-career pass with
+legacy Ollama scoring disabled. ATS sync fetches at most 20 embedded career
+pages and refreshes at most 50 registered employer boards per run. `--dry-run`
+does not insert jobs or run logs.
+This command does not claim or score evaluation work. Process selected job IDs
+with the `daily-claim` and `submit` flow in `job_fit_evaluation`.
 
 ## Board phases
 

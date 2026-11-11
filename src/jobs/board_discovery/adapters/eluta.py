@@ -35,7 +35,7 @@ def parse_eluta_listing(
         if title_el is not None:
             title = title_el.get("title") or title_el.get_text(" ", strip=True)
         company = company_el.get_text(" ", strip=True) if company_el else None
-        location_text = location_el.get_text(" ", strip=True) if location_el else None
+        location_text = " ".join(location_el.get_text(" ", strip=True).split()) if location_el else None
 
         data_url = row.get("data-url") or (title_el.get("data-url") if title_el else None)
         href = title_el.get("href") if title_el else None
