@@ -42,12 +42,12 @@ def _evidence(job):
             'job_evidence': {'title': job['title'], 'description': job['description'], 'url': job['url']}}
 
 
-def final_page_ready(run_id, browser, observation):
+def final_page_ready(run_id, browser, observation, *, expected_owner):
     """Apply the current run mode at the final action boundary."""
     if read_application_run(run_id)["mode"] == "draft_for_review":
-        return transition_application(run_id, "ready_for_review")
+        return transition_application(run_id, "ready_for_review", expected_owner=expected_owner)
     from src.applications.submission import submit_if_authorized
-    submit_if_authorized(run_id, browser.page, observation)
+    submit_if_authorized(run_id, browser.page, observation, expected_owner=expected_owner)
     return read_application_run(run_id)
 
 
@@ -188,7 +188,7 @@ def _process_application_run(run_id: int, *, worker_id, browser_factory, answer_
                     return transition('needs_user', 'Resolve field or provider validation errors')
                 if observation.final_action:
                     transition('filling')
-                    return final_page_ready(run_id, browser, observation)
+                    return final_page_ready(run_id, browser, observation, expected_owner=worker_id)
                 if not observation.next_action:
                     return transition('needs_user', 'No recognized next or final control')
                 transition('filling')

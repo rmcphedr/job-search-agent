@@ -19,22 +19,32 @@ ACKNOWLEDGMENTS = ('your application has been submitted', 'your application has 
                    'we have received your application', 'application successfully submitted')
 
 
-def inspect_receipt(page, before: PageObservation) -> dict | None:
-    """Accept explicit employer acknowledgment, not a URL change or a generic thanks."""
+def confirmation_messages(page) -> set[str]:
+    """Only visible success statements in semantic confirmation elements qualify."""
+    messages = page.evaluate("""() => [...document.querySelectorAll(
+        '[role=status], [role=alert], h1, h2, [role=heading]'
+    )].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+      .map(el => el.textContent.trim())""")
+    normalized = {' '.join(text.casefold().split()).rstrip('.!') for text in messages}
+    return normalized.intersection(ACKNOWLEDGMENTS)
+
+
+def inspect_receipt(page, before: PageObservation, *, previous: set[str] | None = None) -> dict | None:
+    """Require a new, explicit success statement in a visible confirmation element."""
     page.wait_for_load_state('domcontentloaded')
     for _ in range(20):
         current = observe_page(page)
         if urlsplit(current.url).netloc != urlsplit(before.url).netloc:
             return None
-        text = page.locator('body').inner_text().casefold()
-        match = next((phrase for phrase in ACKNOWLEDGMENTS if phrase in text), None)
-        if match and not current.final_action and not current.gates and not current.validation:
-            return {'url': current.url, 'acknowledgment': match}
+        new_messages = confirmation_messages(page) - (previous or set())
+        if new_messages and not current.final_action and not current.gates and not current.validation:
+            return {'url': current.url, 'acknowledgment': sorted(new_messages)[0],
+                    'evidence': 'new_visible_confirmation_element'}
         page.wait_for_timeout(250)
     return None
 
 
-def submit_if_authorized(run_id: int, page, observation: PageObservation) -> SubmissionOutcome:
+def submit_if_authorized(run_id: int, page, observation: PageObservation, *, expected_owner: str) -> SubmissionOutcome:
     db = get_connection()
     try:
         db.execute('BEGIN IMMEDIATE')
@@ -48,7 +58,7 @@ def submit_if_authorized(run_id: int, page, observation: PageObservation) -> Sub
                 transition_application(run_id, 'submission_uncertain', connection=db)
                 db.commit()
             return SubmissionOutcome('submission_uncertain')
-        if run['status'] != 'filling' or not run['lease_owner'] or (run['lease_expires_at'] or '') <= _now():
+        if run['status'] != 'filling' or not expected_owner or run['lease_owner'] != expected_owner or (run['lease_expires_at'] or '') <= _now():
             return SubmissionOutcome(run['status'])
         if run['mode'] != 'fully_automate':
             transition_application(run_id, 'ready_for_review', connection=db)
@@ -86,15 +96,16 @@ def submit_if_authorized(run_id: int, page, observation: PageObservation) -> Sub
             transition_application(run_id, 'needs_user', pause_reason='Final submission readiness requires review', connection=db)
             db.commit()
             return SubmissionOutcome('needs_user')
+        previous_confirmations = confirmation_messages(page)
         checkpoint = dict(run['checkpoint'])
         checkpoint['submission_snapshot'] = {'application_fields': fields, 'application_url':current.url}
-        transition_application(run_id, 'submitting', checkpoint=checkpoint, expected_owner=run['lease_owner'], connection=db)
+        transition_application(run_id, 'submitting', checkpoint=checkpoint, expected_owner=expected_owner, connection=db)
         db.commit()  # Irreversible-action marker must be durable BEFORE click.
     finally:
         db.close()
     try:
         locator.click()
-        receipt = inspect_receipt(page, current)
+        receipt = inspect_receipt(page, current, previous=previous_confirmations)
         if receipt:
             snapshot = record_confirmed_application_submission(run_id, receipt)
             return SubmissionOutcome('submitted', snapshot)

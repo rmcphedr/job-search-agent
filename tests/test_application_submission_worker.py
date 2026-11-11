@@ -5,6 +5,8 @@ from tests.test_application_worker import env, observation
 from src.database import application_runs as runs
 from src.applications import submission as s
 
+REAL_INSPECT_RECEIPT = s.inspect_receipt
+
 @pytest.fixture
 def ready(env, monkeypatch):
     root, connect = env
@@ -16,20 +18,20 @@ def ready(env, monkeypatch):
     with connect() as db:
         db.execute("INSERT INTO application_sessions(job_id,provider,application_url) VALUES(1,'generic_web_form','https://example.test/apply')")
     obs = observation()
-    page = SimpleNamespace(url=obs.url, clicks=0)
+    page = SimpleNamespace(url=obs.url, clicks=0, evaluate=lambda script: [])
     def click():
         assert runs.read_application_run(run['run_id'])['submission_attempted_at']
         page.clicks += 1
     page.get_by_role = lambda *a, **k: SimpleNamespace(count=lambda:1, click=click)
     monkeypatch.setattr(s, 'observe_page', lambda p: obs)
-    monkeypatch.setattr(s, 'inspect_receipt', lambda p, before: {'url':p.url, 'acknowledgment':'Your application has been submitted.'})
+    monkeypatch.setattr(s, 'inspect_receipt', lambda p, before, **kw: {'url':p.url, 'acknowledgment':'Your application has been submitted.'})
     return run['run_id'], page, obs, connect
 
 def test_confirmed_once_and_immutable(ready):
     run, page, obs, connect = ready
-    result = s.submit_if_authorized(run,page,obs)
+    result = s.submit_if_authorized(run,page,obs, expected_owner='test')
     assert result.status == 'submitted'
-    assert s.submit_if_authorized(run,page,obs).submission == result.submission
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').submission == result.submission
     assert page.clicks == 1
     with connect() as db:
         assert db.execute('SELECT stage FROM tracked_jobs').fetchone()[0] == 'applied'
@@ -44,14 +46,14 @@ def test_blocked(ready, monkeypatch, problem):
     if problem in {'gate','validation','changed'}:
         changed = replace(obs, **({'gates':('captcha',)} if problem=='gate' else {'validation':('invalid',)} if problem=='validation' else {'page_identity':'new'}))
         monkeypatch.setattr(s,'observe_page',lambda p: changed)
-    assert s.submit_if_authorized(run,page,obs).status == ('ready_for_review' if problem=='draft' else 'needs_user')
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').status == ('ready_for_review' if problem=='draft' else 'needs_user')
     assert page.clicks == 0
 
 def test_ambiguous_never_retries(ready, monkeypatch):
     run,page,obs,connect = ready
-    monkeypatch.setattr(s,'inspect_receipt',lambda *a: None)
-    assert s.submit_if_authorized(run,page,obs).status == 'submission_uncertain'
-    assert s.submit_if_authorized(run,page,obs).status == 'submission_uncertain'
+    monkeypatch.setattr(s,'inspect_receipt',lambda *a, **kw: None)
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').status == 'submission_uncertain'
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').status == 'submission_uncertain'
     assert page.clicks == 1
     with connect() as db:
         assert db.execute('SELECT stage FROM tracked_jobs').fetchone()[0] == 'applying'
@@ -61,17 +63,17 @@ def test_click_exception_is_uncertain(ready):
     run,page,obs,connect = ready
     def fail(): raise RuntimeError('connection interrupted')
     page.get_by_role = lambda *a, **k: SimpleNamespace(count=lambda:1, click=fail)
-    assert s.submit_if_authorized(run,page,obs).status == 'submission_uncertain'
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').status == 'submission_uncertain'
     assert runs.read_application_run(run)['submission_attempted_at']
 
 
 def test_receipt_requires_explicit_acknowledgment(monkeypatch):
     obs = observation()
     page = SimpleNamespace(wait_for_load_state=lambda *a:None, wait_for_timeout=lambda *a:None)
-    page.locator = lambda *a: SimpleNamespace(inner_text=lambda:'Thank you')
+    page.evaluate = lambda script: ['Thank you']
     monkeypatch.setattr(s,'observe_page',lambda p:replace(obs,final_action=None))
     assert s.inspect_receipt(page,obs) is None
-    page.locator = lambda *a: SimpleNamespace(inner_text=lambda:'Your application has been submitted')
+    page.evaluate = lambda script: ['Your application has been submitted']
     assert s.inspect_receipt(page,obs)['acknowledgment']
     monkeypatch.setattr(s,'observe_page',lambda p:obs)
     assert s.inspect_receipt(page,obs) is None
@@ -100,5 +102,56 @@ def test_live_answer_must_match_approval(ready, monkeypatch, live_value, expecte
     page.get_by_label = lambda *a, **k: SimpleNamespace(input_value=lambda:live_value)
     with connect() as db:
         db.execute("INSERT INTO application_fields(job_id,section,field_key,label,field_type,required,value,status,disposition) VALUES(1,'questions','answer','Answer','text',1,'Approved answer','reviewed','provided')")
-    assert s.submit_if_authorized(run,page,obs).status == expected
+    assert s.submit_if_authorized(run,page,obs, expected_owner='test').status == expected
     assert page.clicks == (expected == 'submitted')
+
+
+def test_stale_worker_cannot_adopt_replacement_lease(ready):
+    run,page,obs,connect = ready
+    with connect() as db:
+        db.execute("UPDATE application_runs SET lease_expires_at='2000-01-01' WHERE run_id=?",(run,))
+    assert runs.claim_next_application('replacement',run_id=run)
+    result = s.submit_if_authorized(run,page,obs,expected_owner='test')
+    assert result.status == 'filling'
+    assert page.clicks == 0
+    current = runs.read_application_run(run)
+    assert current['lease_owner'] == 'replacement'
+    assert current['submission_attempted_at'] is None
+
+
+def test_instruction_text_and_disabled_submit_are_not_receipt(ready,monkeypatch):
+    run,page,obs,connect = ready
+    # Exercise the real inspector, bypassing the fixture's receipt stub.
+    monkeypatch.setattr(s,'get_connection',connect)
+    monkeypatch.setattr(s,'observe_page',lambda p:replace(obs,final_action=None) if p.clicks else obs)
+    page.evaluate = lambda script: ['Once your application has been submitted, we will contact you.']
+    page.wait_for_load_state = lambda *a:None
+    page.wait_for_timeout = lambda *a:None
+    monkeypatch.setattr(s,'inspect_receipt',REAL_INSPECT_RECEIPT)
+    assert s.submit_if_authorized(run,page,obs,expected_owner='test').status == 'submission_uncertain'
+    assert s.submit_if_authorized(run,page,obs,expected_owner='test').status == 'submission_uncertain'
+    assert page.clicks == 1
+    with connect() as db:
+        assert db.execute('SELECT stage FROM tracked_jobs').fetchone()[0] == 'applying'
+        assert db.execute('SELECT count(*) FROM application_submissions').fetchone()[0] == 0
+
+
+def test_preexisting_exact_confirmation_is_not_new_receipt(monkeypatch):
+    obs = observation()
+    page = SimpleNamespace(evaluate=lambda script:['Your application has been submitted.'],
+        wait_for_load_state=lambda *a:None,wait_for_timeout=lambda *a:None)
+    monkeypatch.setattr(s,'observe_page',lambda p:replace(obs,final_action=None))
+    assert s.inspect_receipt(page,obs,previous={'your application has been submitted'}) is None
+
+
+def test_new_confirmation_element_after_click_records_submission(ready,monkeypatch):
+    run,page,obs,connect = ready
+    monkeypatch.setattr(s,'inspect_receipt',REAL_INSPECT_RECEIPT)
+    monkeypatch.setattr(s,'observe_page',lambda p:replace(obs,final_action=None) if p.clicks else obs)
+    page.evaluate = lambda script: ['Your application has been received.'] if page.clicks else []
+    page.wait_for_load_state = lambda *a:None
+    page.wait_for_timeout = lambda *a:None
+    result = s.submit_if_authorized(run,page,obs,expected_owner='test')
+    assert result.status == 'submitted'
+    assert result.submission['snapshot']['receipt']['evidence'] == 'new_visible_confirmation_element'
+    assert page.clicks == 1
