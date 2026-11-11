@@ -65,8 +65,12 @@ def test_explicit_run_controls(ui, monkeypatch, label, api):
     action = MagicMock()
     monkeypatch.setattr(tracking_view, api, action)
     ui.button.side_effect = lambda text, **kw: text == label
+    ui.selectbox.side_effect = lambda label, options, **kw: 'fully_automate'
     tracking_view._render_application_run(42)
-    assert action.call_count == 1
+    if api == 'set_application_mode':
+        action.assert_called_once_with(3, 'fully_automate')
+    else:
+        action.assert_called_once_with(3)
 
 
 def test_draft_packet_and_uncertain_have_no_submit_or_retry(ui, monkeypatch):

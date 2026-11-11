@@ -104,3 +104,22 @@ def test_custom_combobox_blocks_next_even_without_value(page):
     assert not fill_observed_page(page, observation, {}).filled
     with pytest.raises(BrowserPause):
         advance_nonfinal(page, observation)
+
+
+@pytest.mark.parametrize('control', ['<input value="unapproved">', '<textarea>unapproved</textarea>', '<select><option>unapproved</option></select>', '<input type="checkbox" checked>'])
+def test_omitted_optional_prefill_pauses_before_navigation(page, control):
+    control = control.replace('<input', '<input id="optional"').replace('<textarea', '<textarea id="optional"').replace('<select', '<select id="optional"')
+    page.set_content('<form><label for="optional">Optional</label>'+control+'<button type="button" onclick="document.body.dataset.sent=1">Next</button></form>')
+    obs = observe_page(page)
+    assert fill_observed_page(page, obs, {}).unresolved == ('optional',)
+    assert page.locator('body').get_attribute('data-sent') is None
+
+
+def test_optional_value_changed_after_fill_blocks_next(page):
+    page.set_content('<form><label>Optional<input></label><button type="button" onclick="document.body.dataset.sent=1">Next</button></form>')
+    obs = observe_page(page)
+    assert not fill_observed_page(page, obs, {}).unresolved
+    page.get_by_label('Optional', exact=True).fill('unapproved change')
+    with pytest.raises(BrowserPause):
+        advance_nonfinal(page, obs, values={})
+    assert page.locator('body').get_attribute('data-sent') is None

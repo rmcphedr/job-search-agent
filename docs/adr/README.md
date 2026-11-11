@@ -66,7 +66,6 @@ Optional: **Alternatives considered**, **Implementation notes**, **Related ADRs*
 | [ADR-018](ADR-018-job-description-enrichment.md) | Shared job-description enrichment and expiration | Accepted |
 | [ADR-019](ADR-019-human-reviewed-application-agent.md) | Human-reviewed application agent | Superseded by ADR-021 |
 | [ADR-020](ADR-020-durable-agent-job-evaluation-queue.md) | Durable agent job evaluation queue | Accepted |
-
 | [ADR-021](ADR-021-approval-driven-application-worker.md) | Approval-driven application worker | Accepted |
 
 ## Related documents

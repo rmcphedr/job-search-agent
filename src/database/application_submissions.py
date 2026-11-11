@@ -31,6 +31,8 @@ def record_application_submission(
     connection = get_connection()
     try:
         apply_migrations(connection)
+        connection.commit()
+        connection.execute("BEGIN IMMEDIATE")
         session_row = connection.execute(
             "SELECT * FROM application_sessions WHERE job_id = ?;", (job_id,)
         ).fetchone()
@@ -78,6 +80,17 @@ def record_application_submission(
             VALUES (?, ?, 'submission_reconciled', 'success', ?);""",
             (job_id, session.get("provider"), json.dumps({"method": method, "submission_id": cursor.lastrowid})),
         )
+        for row in connection.execute(
+            "SELECT run_id, checkpoint_json FROM application_runs WHERE job_id=? AND status NOT IN ('submitted','failed','cancelled')",
+            (job_id,),
+        ).fetchall():
+            checkpoint = json.loads(row['checkpoint_json'] or '{}')
+            checkpoint['submission_id'] = cursor.lastrowid
+            connection.execute(
+                """UPDATE application_runs SET status='submitted', checkpoint_json=?,
+                pause_reason=NULL, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE run_id=?""",
+                (json.dumps(checkpoint), submitted_at, row['run_id']),
+            )
         connection.commit()
         return get_application_submission(int(cursor.lastrowid)) or {}
     except Exception:

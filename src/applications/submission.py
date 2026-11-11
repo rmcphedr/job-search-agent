@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from src.applications.browser_session import PageObservation, observe_page
+from src.applications.browser_session import PageObservation, observe_page, live_control_is_empty
 from src.database.db import get_connection
 from src.database.application_runs import _row, _now, transition_application
 from src.database.application_automation import submission_readiness
@@ -75,6 +75,9 @@ def submit_if_authorized(run_id: int, page, observation: PageObservation, *, exp
             for field in current.fields:
                 stored = saved.get(field.field_key)
                 if not stored or not stored['value']:
+                    valid = live_control_is_empty(page, field, current)
+                    if not valid:
+                        break
                     continue
                 control = page.get_by_label(field.label, exact=True)
                 if field.field_type == 'file':

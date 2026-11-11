@@ -132,6 +132,21 @@ def observe_page(page: Any) -> PageObservation:
                            final_actions[0] if len(final_actions)==1 else None, tuple(uploads))
 
 
+def live_control_is_empty(page: Any, field, observation: PageObservation) -> bool:
+    """Omitted answers must not transmit browser-prefilled or user-added data."""
+    if field.field_key in dict(observation.uploads):
+        return False  # Custom uploads cannot be verified generically.
+    control = page.get_by_label(field.label, exact=True)
+    try:
+        if field.field_type == 'file':
+            return control.evaluate('(el) => el.files.length') == 0
+        if field.field_type == 'checkbox':
+            return not control.is_checked()
+        return control.input_value() == ''
+    except Exception:
+        return False
+
+
 def fill_observed_page(page: Any, observation: PageObservation, values: dict[str, str]) -> FillOutcome:
     current = observe_page(page)
     if current.page_identity != observation.page_identity:
@@ -142,7 +157,7 @@ def fill_observed_page(page: Any, observation: PageObservation, values: dict[str
     uploads = dict(current.uploads)
     for field in current.fields:
         if field.field_key not in values:
-            if field.required:
+            if field.required or not live_control_is_empty(page, field, current):
                 unresolved.append(field.field_key)
             continue
         value = values[field.field_key]
@@ -178,12 +193,17 @@ def fill_observed_page(page: Any, observation: PageObservation, values: dict[str
     return FillOutcome(tuple(filled), tuple(unresolved), observe_page(page).validation)
 
 
-def advance_nonfinal(page: Any, observation: PageObservation) -> PageObservation:
+def advance_nonfinal(page: Any, observation: PageObservation, *, values: dict[str, str] | None = None) -> PageObservation:
     current = observe_page(page)
     if current.page_identity != observation.page_identity:
         raise BrowserPause("Page changed; inspect before navigation")
     if current.gates or current.validation or not current.next_action or current.final_action:
         raise BrowserPause("Navigation requires user review")
+    if values is not None and any(
+        field.field_key not in values and not live_control_is_empty(page, field, current)
+        for field in current.fields
+    ):
+        raise BrowserPause("Omitted field contains a value requiring approval")
     action = current.next_action
     locator = page.get_by_role(action.role, name=action.name, exact=True)
     if locator.count() != 1:

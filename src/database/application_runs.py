@@ -101,6 +101,14 @@ def claim_next_application(worker_id: str, lease_seconds: int = 900, *, run_id: 
         if not db.in_transaction:
             db.execute("BEGIN IMMEDIATE")
         now = _now()
+        # A committed attempt may already have reached the employer before death.
+        db.execute(
+            """UPDATE application_runs SET status='submission_uncertain',
+            pause_reason='Verify employer receipt before reconciliation',
+            lease_owner=NULL, lease_expires_at=NULL, updated_at=?
+            WHERE status='submitting' AND (lease_expires_at IS NULL OR lease_expires_at<=?)""",
+            (now, now),
+        )
         row = db.execute(
             """SELECT run_id, status FROM application_runs
                WHERE status IN ('queued','inspecting','preparing','filling')

@@ -32,7 +32,7 @@ def setup_worker(env, monkeypatch, pages, bridge=None):
         try: yield browser
         finally: state.closed = True
     monkeypatch.setattr(w, 'fill_observed_page', lambda page, obs, values: (state.fills.append(values) or w.FillOutcome(tuple(values))))
-    def advance(page, obs):
+    def advance(page, obs, *, values):
         state.index += 1
         return pages[state.index]
     monkeypatch.setattr(w, 'advance_nonfinal', advance)
@@ -252,3 +252,20 @@ def test_heartbeat_renews_while_external_work_is_running(env, monkeypatch):
     with w._maintain_lease(run, owner):
         assert renewed.wait(2)
         assert runs.read_application_run(run)['lease_expires_at'] > claimed['lease_expires_at']
+
+
+def test_reviewed_replacement_document_survives_authorization(env, monkeypatch):
+    from src.applications.dayforce import ApplicationField
+    from src.database.application_workspace import update_application_field
+    w, state, run, deps = setup_worker(env, monkeypatch, [observation([ApplicationField('resume','resume','Resume','file',True)])])
+    assert w.process_application_run(run, **deps)['status'] == 'ready_for_review'
+    replacement = env[0] / 'replacement.docx'
+    replacement.write_text('reviewed replacement')
+    update_application_field(1, 'resume', str(replacement))
+    runs.set_application_mode(run, 'fully_automate')
+    runs.transition_application(run, 'queued')
+    monkeypatch.setattr(w, 'final_page_ready', lambda run_id, *a, **kw: runs.read_application_run(run_id))
+    result = w.process_application_run(run, **deps)
+    assert state.fills[-1]['resume'] == str(replacement)
+    assert result['checkpoint']['artifacts']['resume_docx'] == str(replacement)
+    assert state.generations == [False]

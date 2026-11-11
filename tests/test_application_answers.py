@@ -111,3 +111,9 @@ def test_profile_fact_requires_exact_value(monkeypatch, source, answer, expected
     key = 'email' if 'Email:' in source else 'employer'
     evidence = {'profile_files': {'user/master_cv.md': source}}
     assert classify_answer({'field_key': key, 'answer': answer}, evidence) == expected
+
+
+@pytest.mark.parametrize('line', ['Email: **a@example.test**', '**Email:** a@example.test', '**Email: a@example.test**', 'Email: `a@example.test`', 'Email: _a@example.test_', '**Email**: **a@example.test**'])
+def test_markdown_enclosed_profile_value(line):
+    from src.applications.answer_policy import classify_answer
+    assert classify_answer({'field_key':'email','answer':'a@example.test'}, {'profile_files':{'user/career_profile.md':line}}) == 'confirmed'

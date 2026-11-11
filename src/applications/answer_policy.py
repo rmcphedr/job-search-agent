@@ -69,16 +69,27 @@ def classify_answer(field: dict[str, Any], evidence: dict[str, Any]) -> str:
     aliases = {item for item in aliases if item}
     for content in valid_profile_sources(evidence).values():
         for line in content.splitlines():
-            # Remove Markdown only from the label area; punctuation in the value
-            # (especially email addresses and hyphenated names) is factual data.
+            # Preserve factual punctuation while recognizing matched Markdown wrappers.
             unbulleted = re.sub(r"^\s*(?:[-*+]\s+|#{1,6}\s+)", "", line)
+            # Remove matched wrappers around a complete line first, then value.
+            for marker in ('**', '__', '`', '*', '_'):
+                if unbulleted.startswith(marker) and unbulleted.rstrip().endswith(marker) and marker not in unbulleted.strip()[len(marker):-len(marker)]:
+                    unbulleted = unbulleted.strip()[len(marker):-len(marker)]
+                    break
             raw_label, separator, raw_value = unbulleted.partition(":")
             if not separator:
                 continue
             source_label = raw_label.strip().strip("*_` ").casefold()
             source_value = raw_value.strip()
-            if source_value.startswith(("**", "__")):
-                source_value = source_value[2:].strip()
+            # A marker immediately after ':' can close a bold label.
+            for marker in ('**', '__', '`', '*', '_'):
+                if raw_label.strip().startswith(marker) and not raw_label.strip().endswith(marker) and source_value.startswith(marker):
+                    source_value = source_value[len(marker):].strip()
+                    break
+            for marker in ('**', '__', '`', '*', '_'):
+                if source_value.startswith(marker) and source_value.endswith(marker) and len(source_value) > 2 * len(marker):
+                    source_value = source_value[len(marker):-len(marker)]
+                    break
             if source_label in aliases and source_value.casefold() == answer.casefold():
                 return "confirmed"
     return "approval_required"

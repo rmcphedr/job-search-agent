@@ -155,3 +155,44 @@ def test_new_confirmation_element_after_click_records_submission(ready,monkeypat
     assert result.status == 'submitted'
     assert result.submission['snapshot']['receipt']['evidence'] == 'new_visible_confirmation_element'
     assert page.clicks == 1
+
+
+@pytest.mark.parametrize('status', ['needs_user', 'submission_uncertain'])
+def test_manual_reconciliation_finishes_run(ready, status):
+    from src.database.application_submissions import record_application_submission
+    run, page, obs, connect = ready
+    if status == 'submission_uncertain':
+        runs.transition_application(run, 'submitting')
+    runs.transition_application(run, status)
+    submission = record_application_submission(1)
+    current = runs.read_application_run(run)
+    assert current['status'] == 'submitted'
+    assert current['checkpoint']['submission_id'] == submission['submission_id']
+    assert current['lease_owner'] is None
+    assert runs.claim_next_application('replacement', run_id=run) is None
+    with pytest.raises(ValueError): runs.resume_application(run)
+    assert s.submit_if_authorized(run, page, obs, expected_owner='test').submission == submission
+    assert page.clicks == 0
+
+
+def test_expired_submitting_recovers_without_click(ready):
+    run, page, obs, connect = ready
+    runs.transition_application(run, 'submitting')
+    with connect() as db:
+        db.execute("UPDATE application_runs SET lease_expires_at='2000-01-01' WHERE run_id=?", (run,))
+    assert runs.claim_next_application('replacement', run_id=run) is None
+    current = runs.read_application_run(run)
+    assert current['status'] == 'submission_uncertain'
+    assert current['submission_attempted_at']
+    assert current['lease_owner'] is None
+    assert page.clicks == 0
+
+
+def test_omitted_optional_live_value_blocks_submit(ready, monkeypatch):
+    from src.applications.dayforce import ApplicationField
+    run, page, obs, connect = ready
+    obs = replace(obs, fields=(ApplicationField('questions','optional','Optional','text',False),))
+    monkeypatch.setattr(s, 'observe_page', lambda p: obs)
+    page.get_by_label = lambda *a, **kw: SimpleNamespace(input_value=lambda:'unapproved prefill')
+    assert s.submit_if_authorized(run, page, obs, expected_owner='test').status == 'needs_user'
+    assert page.clicks == 0

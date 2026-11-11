@@ -153,9 +153,10 @@ def _process_application_run(run_id: int, *, worker_id, browser_factory, answer_
                     key = field.field_key
                     saved = stored[key]
                     if field.field_type == 'file':
-                        value = artifacts.get(key + '_docx') or saved.get('value')
+                        value = saved.get('value') if saved['status'] == 'reviewed' else artifacts.get(key + '_docx') or saved.get('value')
                         if value and Path(value).is_absolute() and Path(value).is_file():
                             values[key] = str(value)
+                            artifacts[key + '_docx'] = str(value)
                             update_application_field(job['job_id'], key, str(value))
                         elif field.required:
                             return transition('needs_user', f'Document required: {key}')
@@ -192,7 +193,7 @@ def _process_application_run(run_id: int, *, worker_id, browser_factory, answer_
                 if not observation.next_action:
                     return transition('needs_user', 'No recognized next or final control')
                 transition('filling')
-                observation = advance_nonfinal(browser.page, observation)
+                observation = advance_nonfinal(browser.page, observation, values=values)
             return transition('needs_user', 'Page limit reached')
     except (BrowserPause, OSError, RuntimeError, ValueError) as exc:
         current = read_application_run(run_id)
