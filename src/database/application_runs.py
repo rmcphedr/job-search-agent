@@ -192,3 +192,52 @@ def get_application_run(job_id: int) -> dict[str, Any] | None:
         return _row(db, int(row["run_id"])) if row else None
     finally:
         db.close()
+
+
+def approve_answer(run_id: int, field_key: str, answer: str) -> dict[str, Any]:
+    """User approval of a staged draft; Python alone updates the field."""
+    from src.applications.answer_agent import answer_path
+    from src.applications.answer_models import AnswerDraft
+
+    value = answer.strip()
+    if not value:
+        raise ValueError("Approved answer cannot be blank")
+    path = answer_path(run_id, field_key)
+    if not path.is_file():
+        raise ValueError("No staged draft exists for this field")
+    try:
+        draft = AnswerDraft.model_validate_json(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError("Staged answer is invalid") from exc
+    if draft.field_key != field_key:
+        raise ValueError("Staged answer field does not match")
+    db = get_connection()
+    try:
+        if not db.in_transaction:
+            db.execute("BEGIN IMMEDIATE")
+        run = _row(db, run_id)
+        if run["status"] in TERMINAL:
+            raise ValueError("Terminal application run cannot approve answers")
+        cursor = db.execute(
+            """UPDATE application_fields SET value=?, status='reviewed', disposition='provided',
+               validation_error=NULL, updated_at=? WHERE job_id=? AND field_key=?""",
+            (value, _now(), run["job_id"], field_key),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Application field not found")
+        db.execute(
+            """INSERT INTO application_audit_events (job_id, event_type, target_key, outcome, details_json)
+               VALUES (?, 'answer_approved', ?, 'success', '{}')""",
+            (run["job_id"], field_key),
+        )
+        result = dict(db.execute(
+            "SELECT * FROM application_fields WHERE job_id=? AND field_key=?",
+            (run["job_id"], field_key),
+        ).fetchone())
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
