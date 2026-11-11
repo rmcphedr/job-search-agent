@@ -111,3 +111,55 @@ def get_latest_application_submission(job_id: int) -> dict[str, Any] | None:
         ).fetchone())
     finally:
         connection.close()
+
+
+def record_confirmed_application_submission(run_id: int, receipt: dict, *, connection=None) -> dict:
+    """Commit receipt, immutable attempted payload, run, and Applied milestone together."""
+    from src.database.application_runs import _row
+    owned = connection is None
+    db = connection or get_connection()
+    try:
+        if not db.in_transaction:
+            db.execute('BEGIN IMMEDIATE')
+        db.execute('SAVEPOINT confirmed_submission')
+        run = _row(db, run_id)
+        checkpoint = run['checkpoint']
+        if run['status'] == 'submitted' and checkpoint.get('submission_id'):
+            result = _decode(db.execute('SELECT * FROM application_submissions WHERE submission_id=?', (checkpoint['submission_id'],)).fetchone())
+        else:
+            if run['status'] not in {'submitting','submission_uncertain'} or not run['submission_attempted_at']:
+                raise ValueError('No durable submission attempt')
+            if not receipt.get('url') or not receipt.get('acknowledgment'):
+                raise ValueError('Employer receipt evidence required')
+            snapshot = checkpoint.get('submission_snapshot')
+            if not snapshot:
+                raise ValueError('Attempted payload snapshot required')
+            snapshot = {**snapshot, 'receipt': receipt, 'run_id': run_id}
+            session = db.execute('SELECT * FROM application_sessions WHERE job_id=?', (run['job_id'],)).fetchone()
+            if session is None:
+                raise ValueError('Application session required')
+            now = _now()
+            cursor = db.execute('INSERT INTO application_submissions(job_id,provider,application_url,method,snapshot_json,submitted_at) VALUES(?,?,?,?,?,?)',
+                (run['job_id'],session['provider'],snapshot['application_url'],'worker_confirmed',json.dumps(snapshot),now))
+            submission_id = cursor.lastrowid
+            if db.execute("UPDATE tracked_jobs SET stage='applied',applied_at=COALESCE(applied_at,?),updated_at=? WHERE job_id=?", (now,now,run['job_id'])).rowcount != 1:
+                raise ValueError('Tracked job required')
+            db.execute("INSERT INTO application_stage_history(job_id,stage,entered_at) VALUES(?,'applied',?)", (run['job_id'],now))
+            db.execute("UPDATE application_sessions SET status='submitted',current_page='success',updated_at=? WHERE job_id=?", (now,run['job_id']))
+            checkpoint['submission_id'] = submission_id
+            db.execute("UPDATE application_runs SET status='submitted',checkpoint_json=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE run_id=?", (json.dumps(checkpoint),now,run_id))
+            db.execute("INSERT INTO application_audit_events(job_id,event_type,outcome,details_json) VALUES(?,'submission_confirmed','success',?)", (run['job_id'],json.dumps({'run_id':run_id,'submission_id':submission_id})))
+            result = _decode(db.execute('SELECT * FROM application_submissions WHERE submission_id=?',(submission_id,)).fetchone())
+        db.execute('RELEASE SAVEPOINT confirmed_submission')
+        if owned:
+            db.commit()
+        return result
+    except Exception:
+        db.execute('ROLLBACK TO SAVEPOINT confirmed_submission')
+        db.execute('RELEASE SAVEPOINT confirmed_submission')
+        if owned:
+            db.rollback()
+        raise
+    finally:
+        if owned:
+            db.close()

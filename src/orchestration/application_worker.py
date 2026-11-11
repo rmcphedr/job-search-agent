@@ -43,8 +43,12 @@ def _evidence(job):
 
 
 def final_page_ready(run_id, browser, observation):
-    """Task 5 delegation point, called with a live browser and freshly filled page."""
-    return transition_application(run_id, 'ready_for_review')
+    """Apply the current run mode at the final action boundary."""
+    if read_application_run(run_id)["mode"] == "draft_for_review":
+        return transition_application(run_id, "ready_for_review")
+    from src.applications.submission import submit_if_authorized
+    submit_if_authorized(run_id, browser.page, observation)
+    return read_application_run(run_id)
 
 
 @contextmanager

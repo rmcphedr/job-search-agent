@@ -47,3 +47,19 @@ def test_submission_snapshots_and_moves_to_applied(monkeypatch, tmp_path: Path) 
     assert tracked["stage"] == "applied" and tracked["applied_at"]
     assert session["status"] == "submitted"
     assert event["event_type"] == "submission_reconciled"
+
+
+def test_worker_confirmation_requires_durable_attempt(tmp_path):
+    import pytest
+    from src.database.application_runs import enqueue_application
+    from src.database.application_submissions import record_confirmed_application_submission
+    db = _connection(tmp_path / 'guard.db')
+    db.executescript(Path('src/database/schema.sql').read_text())
+    db.execute("INSERT INTO companies(company_id,company_name,website) VALUES(1,'Example','https://example.test')")
+    db.execute("INSERT INTO job_postings(job_id,company_id,title) VALUES(1,1,'Engineer')")
+    run = enqueue_application(1,'fully_automate',connection=db)
+    with pytest.raises(ValueError, match='durable submission attempt'):
+        record_confirmed_application_submission(run['run_id'],{'url':'https://example.test','acknowledgment':'received'},connection=db)
+    assert db.execute('SELECT count(*) FROM application_submissions').fetchone()[0] == 0
+    assert db.execute('SELECT stage FROM tracked_jobs').fetchone()[0] == 'applying'
+    db.close()

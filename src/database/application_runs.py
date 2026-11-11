@@ -169,8 +169,8 @@ def set_application_mode(run_id: int, mode: str) -> dict[str, Any]:
     db = get_connection()
     try:
         current = _row(db, run_id)
-        if current["status"] in TERMINAL:
-            raise ValueError("Terminal application run cannot change mode")
+        if current["status"] in TERMINAL or current["submission_attempted_at"]:
+            raise ValueError("Attempted or terminal application run cannot change mode")
         cursor = db.execute(
             "UPDATE application_runs SET mode=?, updated_at=? WHERE run_id=? AND status=?",
             (mode, _now(), run_id, current["status"]),

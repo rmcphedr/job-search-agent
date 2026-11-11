@@ -116,3 +116,20 @@ def set_field_observation(job_id: int, field_key: str, *, validation_error: str 
         connection.commit()
     finally:
         connection.close()
+
+
+def submission_readiness(connection, job_id: int) -> list[dict] | None:
+    """Read every visited field under the submission transaction."""
+    from pathlib import Path
+    rows = [dict(row) for row in connection.execute('SELECT * FROM application_fields WHERE job_id=? ORDER BY field_id', (job_id,))]
+    for row in rows:
+        value = str(row.get('value') or '').strip()
+        if row['validation_error'] or row['disposition'] == 'human_required':
+            return None
+        if row['required'] and (not value or row['status'] != 'reviewed' or row['disposition'] != 'provided'):
+            return None
+        if value and row['status'] != 'reviewed':
+            return None
+        if value and row['field_type'] == 'file' and (not Path(value).is_absolute() or not Path(value).is_file()):
+            return None
+    return rows
